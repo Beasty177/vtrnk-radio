@@ -456,8 +456,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 60),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 60),
                                     child: SizedBox(
                                       width: 150,
                                       child: Image.asset(
@@ -660,8 +660,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Padding(
-                                    padding: EdgeInsets.only(top: 60),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 60),
                                     child: SizedBox(
                                       width: 200,
                                       child: Image.asset(
@@ -778,8 +778,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                                   ),
                                             ),
                                             onPressed: _togglePlayPause,
-                                            child: const Icon(
-                                              Icons.play_arrow,
+                                            child: Icon(
+                                              _isPlaying
+                                                  ? Icons.pause
+                                                  : Icons.play_arrow,
                                               color: Colors.white,
                                               size: 30,
                                             ),
