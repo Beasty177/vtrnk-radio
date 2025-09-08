@@ -41,31 +41,71 @@ Future<void> main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
   @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final _localeNotifier = ValueNotifier<Locale>(const Locale('ru'));
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocale();
+  }
+
+  Future<void> _loadLocale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final locale = prefs.getString('locale') ?? 'ru';
+    _localeNotifier.value = Locale(locale);
+  }
+
+  Future<void> _setLocale(String locale) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('locale', locale);
+    _localeNotifier.value = Locale(locale);
+  }
+
+  @override
+  void dispose() {
+    _localeNotifier.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'VTRNK Radio',
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: const [
-        Locale('en', ''),
-        Locale('ru', ''),
-        Locale('he', ''),
-      ],
-      home: const MyHomePage(),
+    return ValueListenableBuilder<Locale>(
+      valueListenable: _localeNotifier,
+      builder: (context, locale, child) {
+        return MaterialApp(
+          title: 'VTRNK Radio',
+          locale: locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('en', ''),
+            Locale('ru', ''),
+            Locale('he', ''),
+          ],
+          home: MyHomePage(onLocaleChange: _setLocale),
+        );
+      },
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+  final void Function(String) onLocaleChange;
+
+  const MyHomePage({super.key, required this.onLocaleChange});
+
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
@@ -95,13 +135,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
   String _errorMessage = '';
-  String _statusText = "Сейчас в эфире";
-  String _locale = 'ru'; // Default language
 
   @override
   void initState() {
     super.initState();
-    _loadLocale();
     _randomOffsets = List.generate(
       barCount,
       (_) => _random.nextDouble() * pi * 2,
@@ -183,21 +220,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _initAll();
   }
 
-  Future<void> _loadLocale() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _locale = prefs.getString('locale') ?? 'ru';
-    });
-  }
-
-  Future<void> _setLocale(String locale) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('locale', locale);
-    setState(() {
-      _locale = locale;
-    });
-  }
-
   Future<void> _showLanguageDialog() async {
     await showDialog(
       context: context,
@@ -205,11 +227,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         return AlertDialog(
           backgroundColor: const Color(0xFF1a1a1a),
           title: Text(
-            _locale == 'en'
-                ? 'Select Language'
-                : _locale == 'he'
-                ? 'בחר שפה'
-                : 'Выберите язык',
+            AppLocalizations.of(context).languageDialogTitle,
             style: const TextStyle(color: Colors.white),
           ),
           content: Column(
@@ -222,7 +240,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
-                  _setLocale('en');
+                  widget.onLocaleChange('en');
                   Navigator.pop(context);
                 },
               ),
@@ -233,7 +251,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
-                  _setLocale('ru');
+                  widget.onLocaleChange('ru');
                   Navigator.pop(context);
                 },
               ),
@@ -244,7 +262,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
-                  _setLocale('he');
+                  widget.onLocaleChange('he');
                   Navigator.pop(context);
                 },
               ),
@@ -262,10 +280,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         if (mounted) {
           setState(() {
             _isPlaying = playbackState.playing;
-            _statusText =
-                playbackState.processingState == ProcessingState.buffering
-                ? AppLocalizations.of(context).buffering
-                : AppLocalizations.of(context).nowPlaying;
             if (_isPlaying) {
               _controller.repeat(reverse: true);
             } else {
@@ -424,6 +438,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       mainTitle = match.group(1)?.trim() ?? _title;
       parenthetical = match.group(2);
     }
+    final statusText = _isPlaying
+        ? AppLocalizations.of(context).nowPlaying
+        : AppLocalizations.of(context).buffering;
     return AnimatedBuilder(
       animation: _colorAnimation,
       builder: (context, child) {
@@ -579,7 +596,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       children: [
                                         const SizedBox(height: 60),
                                         Text(
-                                          _statusText,
+                                          statusText,
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontSize: 16,
@@ -694,7 +711,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   ),
                                   const SizedBox(height: 15),
                                   Text(
-                                    _statusText,
+                                    statusText,
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,

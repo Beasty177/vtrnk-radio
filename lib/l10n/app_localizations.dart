@@ -93,6 +93,17 @@ class AppLocalizations {
         return 'Загрузка аудио...';
     }
   }
+
+  String get languageDialogTitle {
+    switch (localeName) {
+      case 'en':
+        return 'Select Language';
+      case 'he':
+        return 'בחר שפה';
+      default:
+        return 'Выберите язык';
+    }
+  }
 }
 
 class _AppLocalizationsDelegate
