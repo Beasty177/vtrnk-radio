@@ -6,7 +6,8 @@ class AppLocalizations {
 
   final String localeName;
 
-  static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
+  static const LocalizationsDelegate<AppLocalizations> delegate =
+      _AppLocalizationsDelegate();
 
   static Future<AppLocalizations> load(Locale locale) {
     return Future.value(AppLocalizations(locale.languageCode));
@@ -32,7 +33,7 @@ class AppLocalizations {
       case 'en':
         return 'Our Chat';
       case 'he':
-        return 'הצ'אט שלנו';
+        return 'הצ\'אט שלנו';
       default:
         return 'Наш чат';
     }
@@ -94,11 +95,13 @@ class AppLocalizations {
   }
 }
 
-class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) => ['en', 'ru', 'he'].contains(locale.languageCode);
+  bool isSupported(Locale locale) =>
+      ['en', 'ru', 'he'].contains(locale.languageCode);
 
   @override
   Future<AppLocalizations> load(Locale locale) => AppLocalizations.load(locale);
