@@ -3,7 +3,7 @@
 VTRNK Radio is a Flutter-based mobile application for streaming internet radio from `https://vtrnk.online/radio_stream`. It features a dynamic equalizer, real-time track metadata updates via WebSocket, background playback, and a responsive UI for both portrait and landscape modes. The app integrates with Liquidsoap and Icecast for seamless audio streaming.
 
 ## Features
-- **Audio Streaming**: Streams high-quality audio with real-time metadata (artist, title, cover art) using `just_audio` and `audio_service`.
+- **Audio Streaming**: Streams high-quality audio with real-time metadata (artist, title, cover art) using `just_audio` and `audio_service` .
 - **Dynamic Equalizer**: Visualizes audio playback with a customizable 14-bar equalizer animation.
 - **Background Playback**: Continues playing audio in the background with system notification controls.
 - **WebSocket Integration**: Fetches real-time track updates via `socket_io_client` for artist, title, and cover art.
