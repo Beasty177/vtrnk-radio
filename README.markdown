@@ -32,12 +32,6 @@ VTRNK Radio is a Flutter-based mobile application for streaming internet radio f
    flutter run
    ```
 
-## Server Setup
-The app connects to a server running Liquidsoap and Icecast at `https://vtrnk.online`. To configure the server:
-- SSH into the server: `ssh beasty197@89.169.174.227`
-- Activate virtual environment: `source /home/beasty197/projects/vtrnk_radio/venv/bin/activate`
-- Run Liquidsoap: `/home/beasty197/.opam/4.14.0/bin/liquidsoap /home/beasty197/projects/vtrnk_radio/liquidsoap/radio.liq`
-- Use appropriate credentials for source, relay, and admin access (stored securely, contact the project maintainer for details).
 
 ## Technologies
 - **Framework**: Flutter, Dart
