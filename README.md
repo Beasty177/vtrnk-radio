@@ -45,12 +45,7 @@ The app connects to a server running Liquidsoap and Icecast at https://vtrnk.onl
 SSH into the server: ssh beasty197@89.169.174.227
 Activate virtual environment: source /home/beasty197/projects/vtrnk_radio/venv/bin/activate
 Run Liquidsoap: /home/beasty197/.opam/4.14.0/bin/liquidsoap /home/beasty197/projects/vtrnk_radio/liquidsoap/radio.liq
-Use credentials:
-<source-password>vtrnk_stream123</source-password>
-<relay-password>vtrnk_stream123</relay-password>
-<admin-password>vtrnk_admin123</admin-password>
-
-
+Use appropriate credentials for source, relay, and admin access (stored securely, contact the project maintainer for details).
 
 Technologies
 
