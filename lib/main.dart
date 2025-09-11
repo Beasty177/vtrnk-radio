@@ -11,42 +11,101 @@ import 'package:palette_generator/palette_generator.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
 
 Future<void> main() async {
-  runZonedGuarded(() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.example.radio_app_new.channel.audio',
-      androidNotificationChannelName: 'VTRNK Radio Playback',
-      androidNotificationChannelDescription: 'VTRNK Radio audio playback controls',
-      androidNotificationOngoing: true,
-      androidNotificationIcon: 'mipmap/ic_launcher',
-      androidStopForegroundOnPause: true,
-    );
-    runApp(const MyApp());
-  }, (error, stackTrace) {
-    print('Unhandled error in main: $error');
-  });
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.example.radio_app_new.channel.audio',
+        androidNotificationChannelName: 'VTRNK Radio Playback',
+        androidNotificationChannelDescription:
+            'VTRNK Radio audio playback controls',
+        androidNotificationOngoing: true,
+        androidNotificationIcon: 'mipmap/ic_launcher',
+        androidStopForegroundOnPause: true,
+      );
+      runApp(const MyApp());
+    },
+    (error, stackTrace) {
+      print('Unhandled error in main: $error');
+    },
+  );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final _localeNotifier = ValueNotifier<Locale>(const Locale('ru'));
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocale();
+  }
+
+  Future<void> _loadLocale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final locale = prefs.getString('locale') ?? 'ru';
+    _localeNotifier.value = Locale(locale);
+  }
+
+  Future<void> _setLocale(String locale) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('locale', locale);
+    _localeNotifier.value = Locale(locale);
+  }
+
+  @override
+  void dispose() {
+    _localeNotifier.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'VTRNK Radio',
-      home: const MyHomePage(),
+    return ValueListenableBuilder<Locale>(
+      valueListenable: _localeNotifier,
+      builder: (context, locale, child) {
+        return MaterialApp(
+          title: 'VTRNK Radio',
+          locale: locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('en', ''),
+            Locale('ru', ''),
+            Locale('he', ''),
+          ],
+          home: MyHomePage(onLocaleChange: _setLocale),
+        );
+      },
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
+  final void Function(String) onLocaleChange;
+
+  const MyHomePage({super.key, required this.onLocaleChange});
+
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
@@ -76,37 +135,53 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
   String _errorMessage = '';
-  String _statusText = "Сейчас в эфире";
 
   @override
   void initState() {
     super.initState();
-    _randomOffsets = List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
-    _randomMultipliers = List.generate(barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
-    _randomSpeeds = List.generate(barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..addStatusListener((status) {
-        if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
-          setState(() {
-            _randomOffsets = List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
-            _randomMultipliers = List.generate(barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
-            _randomSpeeds = List.generate(barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
-          });
-        }
-      });
+    _randomOffsets = List.generate(
+      barCount,
+      (_) => _random.nextDouble() * pi * 2,
+    );
+    _randomMultipliers = List.generate(
+      barCount,
+      (_) => _random.nextDouble() * 0.8 + 0.2,
+    );
+    _randomSpeeds = List.generate(
+      barCount,
+      (_) => 0.8 + _random.nextDouble() * 0.7,
+    );
+    _controller =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 1500),
+        )..addStatusListener((status) {
+          if (status == AnimationStatus.completed ||
+              status == AnimationStatus.dismissed) {
+            setState(() {
+              _randomOffsets = List.generate(
+                barCount,
+                (_) => _random.nextDouble() * pi * 2,
+              );
+              _randomMultipliers = List.generate(
+                barCount,
+                (_) => _random.nextDouble() * 0.8 + 0.2,
+              );
+              _randomSpeeds = List.generate(
+                barCount,
+                (_) => 0.8 + _random.nextDouble() * 0.7,
+              );
+            });
+          }
+        });
     _colorController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-    _colorAnimation = ColorTween(
-      begin: _backgroundColor,
-      end: _backgroundColor,
-    ).animate(CurvedAnimation(
-      parent: _colorController,
-      curve: Curves.easeInOut,
-    ));
+    _colorAnimation = ColorTween(begin: _backgroundColor, end: _backgroundColor)
+        .animate(
+          CurvedAnimation(parent: _colorController, curve: Curves.easeInOut),
+        );
     _menuController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -114,12 +189,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _menuOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
     );
-    _menuOffsetAnimation = Tween<Offset>(
-      begin: const Offset(0.2, 0.0),
-      end: const Offset(0.0, 0.0),
-    ).animate(
-      CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
-    );
+    _menuOffsetAnimation =
+        Tween<Offset>(
+          begin: const Offset(0.2, 0.0),
+          end: const Offset(0.0, 0.0),
+        ).animate(
+          CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
+        );
     _buttonController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
@@ -135,11 +211,66 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       ),
     );
     _menuItemScaleAnimations = _menuItemControllers
-        .map((controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
-              CurvedAnimation(parent: controller, curve: Curves.easeInOut),
-            ))
+        .map(
+          (controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
+            CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+          ),
+        )
         .toList();
     _initAll();
+  }
+
+  Future<void> _showLanguageDialog() async {
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1a1a1a),
+          title: Text(
+            AppLocalizations.of(context).languageDialogTitle,
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'English',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  widget.onLocaleChange('en');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Text('🇷🇺', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'Русский',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  widget.onLocaleChange('ru');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Text('🇮🇱', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'עברית',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  widget.onLocaleChange('he');
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _initAll() async {
@@ -149,9 +280,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         if (mounted) {
           setState(() {
             _isPlaying = playbackState.playing;
-            _statusText = playbackState.processingState == ProcessingState.buffering
-                ? "Загрузка аудио..."
-                : "Сейчас в эфире";
             if (_isPlaying) {
               _controller.repeat(reverse: true);
             } else {
@@ -166,7 +294,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           setState(() {
             _artist = item.artist ?? "VTRNK";
             _title = item.title;
-            _coverUrl = item.artUri?.toString() ?? 'asset:///assets/vt-videoplaceholder.png';
+            _coverUrl =
+                item.artUri?.toString() ??
+                'asset:///assets/vt-videoplaceholder.png';
           });
           _updateBackgroundColor();
         }
@@ -206,20 +336,20 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           0.5,
         ).withOpacity(luminance > 0.5 ? 0.8 : 1.0);
         setState(() {
-          _colorAnimation = ColorTween(
-            begin: _backgroundColor,
-            end: targetColor,
-          ).animate(CurvedAnimation(
-            parent: _colorController,
-            curve: Curves.easeInOut,
-          ));
+          _colorAnimation =
+              ColorTween(begin: _backgroundColor, end: targetColor).animate(
+                CurvedAnimation(
+                  parent: _colorController,
+                  curve: Curves.easeInOut,
+                ),
+              );
           _backgroundColor = targetColor;
         });
         _colorController.forward(from: 0.0);
       }
     } catch (e) {
       print("Ошибка при извлечении цвета: $e");
-      await Future.delayed(Duration(seconds: 5));
+      await Future.delayed(const Duration(seconds: 5));
       await _updateBackgroundColor();
     }
   }
@@ -267,7 +397,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     final Uri uri = Uri.parse(url);
     try {
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: url.startsWith('https://t.me') ? LaunchMode.externalApplication : LaunchMode.platformDefault);
+        await launchUrl(
+          uri,
+          mode: url.startsWith('https://t.me')
+              ? LaunchMode.externalApplication
+              : LaunchMode.platformDefault,
+        );
       } else {
         print("Не удалось открыть URL: $url - приложение не найдено");
       }
@@ -287,13 +422,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_errorMessage.isNotEmpty) {
       return Scaffold(
-        body: Center(child: Text(_errorMessage, style: TextStyle(color: Colors.red))),
+        body: Center(
+          child: Text(_errorMessage, style: const TextStyle(color: Colors.red)),
+        ),
       );
     }
     String mainTitle = _title;
@@ -303,15 +438,22 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       mainTitle = match.group(1)?.trim() ?? _title;
       parenthetical = match.group(2);
     }
+    final statusText = _isPlaying
+        ? AppLocalizations.of(context).nowPlaying
+        : AppLocalizations.of(context).buffering;
     return AnimatedBuilder(
       animation: _colorAnimation,
       builder: (context, child) {
         final currentColor = _colorAnimation.value ?? _backgroundColor;
         final luminance = currentColor.computeLuminance();
-        SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-          statusBarColor: currentColor,
-          statusBarBrightness: luminance < 0.5 ? Brightness.light : Brightness.dark,
-        ));
+        SystemChrome.setSystemUIOverlayStyle(
+          SystemUiOverlayStyle(
+            statusBarColor: currentColor,
+            statusBarBrightness: luminance < 0.5
+                ? Brightness.light
+                : Brightness.dark,
+          ),
+        );
         return Scaffold(
           backgroundColor: currentColor,
           body: Stack(
@@ -319,7 +461,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               OrientationBuilder(
                 builder: (context, orientation) {
                   final screenHeight = MediaQuery.of(context).size.height;
-                  final coverSize = 320.0;
+                  const coverSize = 320.0;
                   return Stack(
                     children: [
                       if (orientation == Orientation.landscape)
@@ -332,13 +474,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
                                   Padding(
-                                    padding: EdgeInsets.only(top: 60),
+                                    padding: const EdgeInsets.only(top: 60),
                                     child: SizedBox(
                                       width: 150,
-                                      child: Image.asset('assets/logovtrnk.png', fit: BoxFit.contain),
+                                      child: Image.asset(
+                                        'assets/logovtrnk.png',
+                                        fit: BoxFit.contain,
+                                      ),
                                     ),
                                   ),
-                                  SizedBox(height: 30),
+                                  const SizedBox(height: 30),
                                   SizedBox(
                                     height: 40,
                                     width: 150,
@@ -350,7 +495,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             progress: _controller.value,
                                             barCount: barCount,
                                             randomOffsets: _randomOffsets,
-                                            randomMultipliers: _randomMultipliers,
+                                            randomMultipliers:
+                                                _randomMultipliers,
                                             randomSpeeds: _randomSpeeds,
                                             isPlaying: _isPlaying,
                                             barWidth: 9.0,
@@ -359,7 +505,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       },
                                     ),
                                   ),
-                                  SizedBox(height: 40),
+                                  const SizedBox(height: 40),
                                   Center(
                                     child: AnimatedBuilder(
                                       animation: _buttonScaleAnimation,
@@ -371,12 +517,20 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             height: 52.5,
                                             child: ElevatedButton(
                                               style: ElevatedButton.styleFrom(
-                                                backgroundColor: Color(0xFF808080),
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                                                backgroundColor: const Color(
+                                                  0xFF808080,
+                                                ),
+                                                shape:
+                                                    const RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.zero,
+                                                    ),
                                               ),
                                               onPressed: _togglePlayPause,
                                               child: Icon(
-                                                _isPlaying ? Icons.pause : Icons.play_arrow,
+                                                _isPlaying
+                                                    ? Icons.pause
+                                                    : Icons.play_arrow,
                                                 color: Colors.white,
                                                 size: 30,
                                               ),
@@ -394,21 +548,29 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   ConstrainedBox(
-                                    constraints: BoxConstraints(maxHeight: coverSize, maxWidth: coverSize),
+                                    constraints: const BoxConstraints(
+                                      maxHeight: coverSize,
+                                      maxWidth: coverSize,
+                                    ),
                                     child: Container(
-                                      decoration: BoxDecoration(
+                                      decoration: const BoxDecoration(
                                         color: Color(0xFF1a1a1a),
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: BorderRadius.all(
+                                          Radius.circular(8),
+                                        ),
                                       ),
                                       child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
+                                        borderRadius: const BorderRadius.all(
+                                          Radius.circular(8),
+                                        ),
                                         child: CachedNetworkImage(
                                           imageUrl: _coverUrl,
                                           fit: BoxFit.cover,
-                                          errorWidget: (context, url, error) => Image.asset(
-                                            'assets/vt-videoplaceholder.png',
-                                            fit: BoxFit.cover,
-                                          ),
+                                          errorWidget: (context, url, error) =>
+                                              Image.asset(
+                                                'assets/vt-videoplaceholder.png',
+                                                fit: BoxFit.cover,
+                                              ),
                                         ),
                                       ),
                                     ),
@@ -418,33 +580,58 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             ),
                             Expanded(
                               child: Padding(
-                                padding: EdgeInsets.only(left: 20, right: 20),
+                                padding: const EdgeInsets.only(
+                                  left: 20,
+                                  right: 20,
+                                ),
                                 child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Column(
                                       mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        SizedBox(height: 60),
-                                        Text(_statusText, style: TextStyle(color: Colors.white, fontSize: 16)),
-                                        SizedBox(height: 15),
-                                        Text(_artist, style: TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.left),
-                                        SizedBox(height: 12),
+                                        const SizedBox(height: 60),
+                                        Text(
+                                          statusText,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 15),
+                                        Text(
+                                          _artist,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                          ),
+                                          textAlign: TextAlign.left,
+                                        ),
+                                        const SizedBox(height: 12),
                                         Column(
                                           mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
                                               mainTitle,
-                                              style: TextStyle(color: Colors.white, fontSize: 16),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                              ),
                                               textAlign: TextAlign.left,
                                             ),
                                             if (parenthetical != null)
                                               Text(
                                                 '($parenthetical)',
-                                                style: TextStyle(color: Colors.white, fontSize: 14),
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 14,
+                                                ),
                                                 textAlign: TextAlign.left,
                                               ),
                                           ],
@@ -452,12 +639,27 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       ],
                                     ),
                                     Padding(
-                                      padding: EdgeInsets.only(bottom: 30),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                      padding: const EdgeInsets.only(
+                                        bottom: 30,
+                                      ),
+                                      child: const Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Text('Developed by', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
-                                          Text('Beasty Beats 2025', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
+                                          Text(
+                                            'Developed by',
+                                            style: TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          Text(
+                                            'Beasty Beats 2025',
+                                            style: TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 16,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -471,18 +673,21 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                         Center(
                           child: SingleChildScrollView(
                             child: ConstrainedBox(
-                              constraints: BoxConstraints(maxWidth: 320),
+                              constraints: const BoxConstraints(maxWidth: 320),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Padding(
-                                    padding: EdgeInsets.only(top: 60),
+                                    padding: const EdgeInsets.only(top: 60),
                                     child: SizedBox(
                                       width: 200,
-                                      child: Image.asset('assets/logovtrnk.png', fit: BoxFit.contain),
+                                      child: Image.asset(
+                                        'assets/logovtrnk.png',
+                                        fit: BoxFit.contain,
+                                      ),
                                     ),
                                   ),
-                                  SizedBox(height: 30),
+                                  const SizedBox(height: 30),
                                   SizedBox(
                                     height: 40,
                                     width: 200,
@@ -494,7 +699,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             progress: _controller.value,
                                             barCount: barCount,
                                             randomOffsets: _randomOffsets,
-                                            randomMultipliers: _randomMultipliers,
+                                            randomMultipliers:
+                                                _randomMultipliers,
                                             randomSpeeds: _randomSpeeds,
                                             isPlaying: _isPlaying,
                                             barWidth: 12.0,
@@ -503,48 +709,72 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       },
                                     ),
                                   ),
-                                  SizedBox(height: 15),
-                                  Text(_statusText, style: TextStyle(color: Colors.white, fontSize: 16)),
-                                  SizedBox(height: 15),
-                                  Text(_artist, style: TextStyle(color: Colors.white, fontSize: 18), textAlign: TextAlign.center),
-                                  SizedBox(height: 12),
+                                  const SizedBox(height: 15),
+                                  Text(
+                                    statusText,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 15),
+                                  Text(
+                                    _artist,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 12),
                                   Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         mainTitle,
-                                        style: TextStyle(color: Colors.white, fontSize: 16),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                        ),
                                         textAlign: TextAlign.center,
                                       ),
                                       if (parenthetical != null)
                                         Text(
                                           '($parenthetical)',
-                                          style: TextStyle(color: Colors.white, fontSize: 14),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                          ),
                                           textAlign: TextAlign.center,
                                         ),
                                     ],
                                   ),
-                                  SizedBox(height: 12),
+                                  const SizedBox(height: 12),
                                   Container(
                                     width: 320,
                                     height: 320,
-                                    decoration: BoxDecoration(
+                                    decoration: const BoxDecoration(
                                       color: Color(0xFF1a1a1a),
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.all(
+                                        Radius.circular(8),
+                                      ),
                                     ),
                                     child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: const BorderRadius.all(
+                                        Radius.circular(8),
+                                      ),
                                       child: CachedNetworkImage(
                                         imageUrl: _coverUrl,
                                         fit: BoxFit.cover,
-                                        errorWidget: (context, url, error) => Image.asset(
-                                          'assets/vt-videoplaceholder.png',
-                                          fit: BoxFit.cover,
-                                        ),
+                                        errorWidget: (context, url, error) =>
+                                            Image.asset(
+                                              'assets/vt-videoplaceholder.png',
+                                              fit: BoxFit.cover,
+                                            ),
                                       ),
                                     ),
                                   ),
-                                  SizedBox(height: 10),
+                                  const SizedBox(height: 10),
                                   AnimatedBuilder(
                                     animation: _buttonScaleAnimation,
                                     builder: (context, child) {
@@ -555,22 +785,36 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           height: 52.5,
                                           child: ElevatedButton(
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: Color(0xFF808080),
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                                              backgroundColor: const Color(
+                                                0xFF808080,
                                               ),
-                                              onPressed: _togglePlayPause,
-                                              child: Icon(
-                                                _isPlaying ? Icons.pause : Icons.play_arrow,
-                                                color: Colors.white,
-                                                size: 30,
-                                              ),
+                                              shape:
+                                                  const RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.zero,
+                                                  ),
+                                            ),
+                                            onPressed: _togglePlayPause,
+                                            child: Icon(
+                                              _isPlaying
+                                                  ? Icons.pause
+                                                  : Icons.play_arrow,
+                                              color: Colors.white,
+                                              size: 30,
                                             ),
                                           ),
-                                        );
-                                      },
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    'Developed by Beasty Beats 2025',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 16,
                                     ),
-                                  SizedBox(height: 10),
-                                  Text('Developed by Beasty Beats 2025', style: TextStyle(color: Colors.grey[400], fontSize: 16)),
+                                  ),
                                 ],
                               ),
                             ),
@@ -580,7 +824,11 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                         top: 30,
                         right: 10,
                         child: IconButton(
-                          icon: Icon(Icons.menu, color: Colors.white, size: 36),
+                          icon: const Icon(
+                            Icons.menu,
+                            color: Colors.white,
+                            size: 36,
+                          ),
                           onPressed: _toggleMenu,
                         ),
                       ),
@@ -597,29 +845,54 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   offset: _menuOffsetAnimation.value,
                                   child: Container(
                                     width: 195,
-                                    color: Color(0xFF1a1a1a),
-                                    padding: EdgeInsets.all(10),
+                                    color: const Color(0xFF1a1a1a),
+                                    padding: const EdgeInsets.all(10),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[0].forward(),
-                                            onTapCancel: () => _menuItemControllers[0].reverse(),
-                                            onTap: () => _onMenuItemTap(0, () => _launchURL('https://t.me/vtornikshow')),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[0]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[0]
+                                                    .reverse(),
+                                            onTap: () => _onMenuItemTap(
+                                              0,
+                                              () => _launchURL(
+                                                'https://t.me/vtornikshow',
+                                              ),
+                                            ),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[0],
+                                              animation:
+                                                  _menuItemScaleAnimations[0],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[0].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[0]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
                                                     child: Text(
-                                                      'Telegram',
-                                                      style: TextStyle(color: Color(0xFF00aced), fontSize: 18),
+                                                      AppLocalizations.of(
+                                                        context,
+                                                      ).telegram,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF00aced,
+                                                        ),
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -631,21 +904,45 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[1].forward(),
-                                            onTapCancel: () => _menuItemControllers[1].reverse(),
-                                            onTap: () => _onMenuItemTap(1, () => _launchURL('https://t.me/beastybeats23')),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[1]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[1]
+                                                    .reverse(),
+                                            onTap: () => _onMenuItemTap(
+                                              1,
+                                              () => _launchURL(
+                                                'https://t.me/beastybeats23',
+                                              ),
+                                            ),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[1],
+                                              animation:
+                                                  _menuItemScaleAnimations[1],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[1].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[1]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
                                                     child: Text(
-                                                      'Наш чат',
-                                                      style: TextStyle(color: Color(0xFF00aced), fontSize: 18),
+                                                      AppLocalizations.of(
+                                                        context,
+                                                      ).chat,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF00aced,
+                                                        ),
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -657,21 +954,45 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[2].forward(),
-                                            onTapCancel: () => _menuItemControllers[2].reverse(),
-                                            onTap: () => _onMenuItemTap(2, () => _launchURL('https://vtrnk.online/stream.html')),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[2]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[2]
+                                                    .reverse(),
+                                            onTap: () => _onMenuItemTap(
+                                              2,
+                                              () => _launchURL(
+                                                'https://vtrnk.online/stream.html',
+                                              ),
+                                            ),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[2],
+                                              animation:
+                                                  _menuItemScaleAnimations[2],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[2].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[2]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
                                                     child: Text(
-                                                      'Видео стрим',
-                                                      style: TextStyle(color: Color(0xFF00aced), fontSize: 18),
+                                                      AppLocalizations.of(
+                                                        context,
+                                                      ).videoStream,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF00aced,
+                                                        ),
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -683,21 +1004,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[3].forward(),
-                                            onTapCancel: () => _menuItemControllers[3].reverse(),
-                                            onTap: () => _onMenuItemTap(3, () => print("Настройки pressed")),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[3]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[3]
+                                                    .reverse(),
+                                            onTap: () => _onMenuItemTap(
+                                              3,
+                                              () => print("Настройки pressed"),
+                                            ),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[3],
+                                              animation:
+                                                  _menuItemScaleAnimations[3],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[3].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[3]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
                                                     child: Text(
-                                                      'Настройки',
-                                                      style: TextStyle(color: Color(0xFF00aced), fontSize: 18),
+                                                      AppLocalizations.of(
+                                                        context,
+                                                      ).settings,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF00aced,
+                                                        ),
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -709,21 +1052,41 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[4].forward(),
-                                            onTapCancel: () => _menuItemControllers[4].reverse(),
-                                            onTap: () => _onMenuItemTap(4, () => print("Язык pressed")),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[4]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[4]
+                                                    .reverse(),
+                                            onTap: () => _onMenuItemTap(
+                                              4,
+                                              () => _showLanguageDialog(),
+                                            ),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[4],
+                                              animation:
+                                                  _menuItemScaleAnimations[4],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[4].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[4]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
-                                                    child: Text(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
+                                                    child: const Text(
                                                       '🇬🇧 🇷🇺 🇮🇱',
-                                                      style: TextStyle(color: Color(0xFF00aced), fontSize: 18),
+                                                      style: TextStyle(
+                                                        color: Color(
+                                                          0xFF00aced,
+                                                        ),
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -735,21 +1098,39 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         Material(
                                           type: MaterialType.transparency,
                                           child: InkWell(
-                                            splashColor: Color(0xFF333333),
-                                            onTapDown: (_) => _menuItemControllers[5].forward(),
-                                            onTapCancel: () => _menuItemControllers[5].reverse(),
-                                            onTap: () => _onMenuItemTap(5, _toggleMenu),
+                                            splashColor: const Color(
+                                              0xFF333333,
+                                            ),
+                                            onTapDown: (_) =>
+                                                _menuItemControllers[5]
+                                                    .forward(),
+                                            onTapCancel: () =>
+                                                _menuItemControllers[5]
+                                                    .reverse(),
+                                            onTap: () =>
+                                                _onMenuItemTap(5, _toggleMenu),
                                             child: AnimatedBuilder(
-                                              animation: _menuItemScaleAnimations[5],
+                                              animation:
+                                                  _menuItemScaleAnimations[5],
                                               builder: (context, child) {
                                                 return Transform.scale(
-                                                  scale: _menuItemScaleAnimations[5].value,
+                                                  scale:
+                                                      _menuItemScaleAnimations[5]
+                                                          .value,
                                                   child: Container(
                                                     width: double.infinity,
-                                                    padding: EdgeInsets.symmetric(vertical: 8),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 8,
+                                                        ),
                                                     child: Text(
-                                                      'Закрыть',
-                                                      style: TextStyle(color: Colors.grey[300], fontSize: 18),
+                                                      AppLocalizations.of(
+                                                        context,
+                                                      ).close,
+                                                      style: const TextStyle(
+                                                        color: Colors.grey,
+                                                        fontSize: 18,
+                                                      ),
                                                       textAlign: TextAlign.end,
                                                     ),
                                                   ),
@@ -813,7 +1194,9 @@ class EqualizerPainter extends CustomPainter {
     for (int i = 0; i < barCount; i++) {
       double phase = progress * 2 * pi * randomSpeeds[i] + randomOffsets[i];
       double heightFactor = (sin(phase) + 1) / 2;
-      double barHeight = isPlaying ? 5 + (maxHeight - 5) * heightFactor * randomMultipliers[i] : 5.0;
+      double barHeight = isPlaying
+          ? 5 + (maxHeight - 5) * heightFactor * randomMultipliers[i]
+          : 5.0;
       double x = startX + i * (barWidth + gap);
       canvas.drawRect(
         Rect.fromLTWH(x, size.height - barHeight, barWidth, barHeight),
@@ -825,14 +1208,15 @@ class EqualizerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant EqualizerPainter oldDelegate) {
     return oldDelegate.progress != progress ||
-           oldDelegate.isPlaying != isPlaying ||
-           oldDelegate.randomOffsets != randomOffsets ||
-           oldDelegate.randomMultipliers != randomMultipliers ||
-           oldDelegate.randomSpeeds != randomSpeeds;
+        oldDelegate.isPlaying != isPlaying ||
+        oldDelegate.randomOffsets != randomOffsets ||
+        oldDelegate.randomMultipliers != randomMultipliers ||
+        oldDelegate.randomSpeeds != randomSpeeds;
   }
 }
 
-class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+class AudioPlayerHandler extends BaseAudioHandler
+    with QueueHandler, SeekHandler {
   static final _player = AudioPlayer();
   late IO.Socket _socket;
   String _artist = "VTRNK";
@@ -885,10 +1269,13 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
   }
 
   void _initWebSocket() {
-    _socket = IO.io('https://vtrnk.online', IO.OptionBuilder()
-        .setTransports(['websocket'])
-        .enableAutoConnect()
-        .build());
+    _socket = IO.io(
+      'https://vtrnk.online',
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableAutoConnect()
+          .build(),
+    );
     _socket.onConnect((_) {
       print('WebSocket подключён');
       _fetchTrackInfo();
@@ -910,7 +1297,9 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
 
   Future<void> _fetchTrackInfo() async {
     try {
-      final response = await http.get(Uri.parse('https://vtrnk.online/track')).timeout(Duration(seconds: 10));
+      final response = await http
+          .get(Uri.parse('https://vtrnk.online/track'))
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List<dynamic>;
         final trackData = {for (var item in data) item[0]: item[1]};
@@ -925,18 +1314,22 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
     } catch (e) {
       print("Ошибка при запросе данных: $e");
       _updateMediaMetadata(title: "Ошибка подключения");
-      await Future.delayed(Duration(seconds: 5));
+      await Future.delayed(const Duration(seconds: 5));
       await _fetchTrackInfo();
     }
   }
 
   Future<void> _fetchCoverUrl() async {
     try {
-      final coverResponse = await http.get(Uri.parse('https://vtrnk.online/get_cover_path')).timeout(Duration(seconds: 10));
+      final coverResponse = await http
+          .get(Uri.parse('https://vtrnk.online/get_cover_path'))
+          .timeout(const Duration(seconds: 10));
       print("Ответ от /get_cover_path: ${coverResponse.body}");
       if (coverResponse.statusCode == 200) {
-        final coverData = jsonDecode(coverResponse.body) as Map<String, dynamic>;
-        _coverUrl = 'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
+        final coverData =
+            jsonDecode(coverResponse.body) as Map<String, dynamic>;
+        _coverUrl =
+            'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
         print("Обложка обновлена: $_coverUrl");
         _updateMediaMetadata();
       } else {
@@ -946,7 +1339,7 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
     } catch (e) {
       print("Ошибка при запросе обложки: $e");
       _updateMediaMetadata();
-      await Future.delayed(Duration(seconds: 5));
+      await Future.delayed(const Duration(seconds: 5));
       await _fetchCoverUrl();
     }
   }
@@ -960,21 +1353,29 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
       artUri: Uri.parse(_coverUrl),
       duration: null,
     );
-    print("Обновление MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}");
+    print(
+      "Обновление MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}",
+    );
     updateMediaItem(newItem);
   }
 
   Future<void> updateMediaItem(MediaItem item) async {
     try {
-      print("Updating MediaItem: title=${item.title}, artist=${item.artist}, cover=${item.artUri}");
+      print(
+        "Updating MediaItem: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
+      );
       mediaItem.add(item);
       await updateQueue([item]);
-      playbackState.add(playbackState.value.copyWith(
-        processingState: AudioProcessingState.ready,
-        playing: _player.playing,
-      ));
+      playbackState.add(
+        playbackState.value.copyWith(
+          processingState: AudioProcessingState.ready,
+          playing: _player.playing,
+        ),
+      );
       await AudioService.updateMediaItem(item);
-      print("Уведомления обновлены: title=${item.title}, artist=${item.artist}, cover=${item.artUri}");
+      print(
+        "Уведомления обновлены: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
+      );
     } catch (e) {
       print("Ошибка обновления MediaItem: $e");
     }
@@ -985,17 +1386,17 @@ class AudioPlayerHandler extends BaseAudioHandler with QueueHandler, SeekHandler
       controls: [
         if (_player.playing) MediaControl.pause else MediaControl.play,
       ],
-      systemActions: {
-        MediaAction.seek,
-      },
-      androidCompactActionIndices: [0],
-      processingState: {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState] ?? AudioProcessingState.idle,
+      systemActions: {MediaAction.seek},
+      androidCompactActionIndices: const [0],
+      processingState:
+          {
+            ProcessingState.idle: AudioProcessingState.idle,
+            ProcessingState.loading: AudioProcessingState.loading,
+            ProcessingState.buffering: AudioProcessingState.buffering,
+            ProcessingState.ready: AudioProcessingState.ready,
+            ProcessingState.completed: AudioProcessingState.completed,
+          }[_player.processingState] ??
+          AudioProcessingState.idle,
       playing: _player.playing,
       updatePosition: _player.position,
       bufferedPosition: _player.bufferedPosition,
