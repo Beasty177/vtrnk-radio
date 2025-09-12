@@ -182,7 +182,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   bool _isPlaying = false;
   String _artist = "Ожидание исполнителя...";
   String _title = "Ожидание трека...";
-  String _coverUrl = 'asset:///assets/vt-videoplaceholder.png';
+  String _coverUrl = 'assets/vt-videoplaceholder.png';
+  bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
   String _errorMessage = '';
@@ -243,7 +244,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
     _menuOffsetAnimation =
         Tween<Offset>(
-          begin: const Offset(0.2, 0.0),
+          begin: const Offset(
+            -0.2,
+            0.0,
+          ), // Изменено на отрицательный для slide-in справа
           end: const Offset(0.0, 0.0),
         ).animate(
           CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
@@ -337,90 +341,102 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 AppLocalizations.of(context).settings,
                 style: const TextStyle(color: Colors.white),
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SwitchListTile(
-                    title: Text(
-                      AppLocalizations.of(context).vibration,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    value: _settings.enableVibration,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _settings = _settings.copyWith(enableVibration: value);
-                      });
-                      setState(() {});
-                      _settings.saveToPrefs();
-                    },
+              content: SizedBox(
+                width: double.maxFinite,
+                height: MediaQuery.of(context).size.height * 0.6, // Размер окна
+                child: SingleChildScrollView(
+                  // Прокрутка для настроек
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).vibration,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.enableVibration,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              enableVibration: value,
+                            );
+                          });
+                          setState(() {});
+                          _settings.saveToPrefs();
+                        },
+                      ),
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).adaptiveBackground,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.enableAdaptiveBackground,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              enableAdaptiveBackground: value,
+                            );
+                          });
+                          setState(() {
+                            if (!value) {
+                              _backgroundColor = Colors.black;
+                              _colorAnimation =
+                                  ColorTween(
+                                    begin: _backgroundColor,
+                                    end: _backgroundColor,
+                                  ).animate(
+                                    CurvedAnimation(
+                                      parent: _colorController,
+                                      curve: Curves.easeInOut,
+                                    ),
+                                  );
+                            } else {
+                              _updateBackgroundColor();
+                            }
+                          });
+                          _settings.saveToPrefs();
+                        },
+                      ),
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).coverLoading,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.enableCoverLoading,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              enableCoverLoading: value,
+                            );
+                          });
+                          setState(() {
+                            _isAssetCover = !value;
+                            if (_isAssetCover) {
+                              _coverUrl = 'assets/vt-videoplaceholder.png';
+                            }
+                          });
+                          _settings.saveToPrefs();
+                        },
+                      ),
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).showEqualizer,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.showEqualizer,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              showEqualizer: value,
+                            );
+                          });
+                          setState(() {});
+                          _settings.saveToPrefs();
+                        },
+                      ),
+                    ],
                   ),
-                  SwitchListTile(
-                    title: Text(
-                      AppLocalizations.of(context).adaptiveBackground,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    value: _settings.enableAdaptiveBackground,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _settings = _settings.copyWith(
-                          enableAdaptiveBackground: value,
-                        );
-                      });
-                      setState(() {
-                        if (!value) {
-                          _backgroundColor = Colors.black;
-                          _colorAnimation =
-                              ColorTween(
-                                begin: _backgroundColor,
-                                end: _backgroundColor,
-                              ).animate(
-                                CurvedAnimation(
-                                  parent: _colorController,
-                                  curve: Curves.easeInOut,
-                                ),
-                              );
-                        } else {
-                          _updateBackgroundColor();
-                        }
-                      });
-                      _settings.saveToPrefs();
-                    },
-                  ),
-                  SwitchListTile(
-                    title: Text(
-                      AppLocalizations.of(context).coverLoading,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    value: _settings.enableCoverLoading,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _settings = _settings.copyWith(
-                          enableCoverLoading: value,
-                        );
-                      });
-                      setState(() {
-                        _coverUrl = value
-                            ? _coverUrl
-                            : 'asset:///assets/vt-videoplaceholder.png';
-                      });
-                      _settings.saveToPrefs();
-                    },
-                  ),
-                  SwitchListTile(
-                    title: Text(
-                      AppLocalizations.of(context).showEqualizer,
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    value: _settings.showEqualizer,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        _settings = _settings.copyWith(showEqualizer: value);
-                      });
-                      setState(() {});
-                      _settings.saveToPrefs();
-                    },
-                  ),
-                ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -441,6 +457,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Future<void> _initAll() async {
     try {
       _settings = await AppSettings.loadFromPrefs();
+      _isAssetCover = !_settings.enableCoverLoading;
+      if (_isAssetCover) {
+        _coverUrl = 'assets/vt-videoplaceholder.png';
+      }
       await _initAudioPlayer();
       _audioHandler.playbackState.listen((playbackState) {
         if (mounted) {
@@ -460,12 +480,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           setState(() {
             _artist = item.artist ?? "VTRNK";
             _title = item.title;
-            _coverUrl = _settings.enableCoverLoading
-                ? (item.artUri?.toString() ??
-                      'asset:///assets/vt-videoplaceholder.png')
-                : 'asset:///assets/vt-videoplaceholder.png';
+            if (_settings.enableCoverLoading) {
+              _isAssetCover = false;
+              _coverUrl =
+                  item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
+            }
           });
-          if (_settings.enableAdaptiveBackground) {
+          if (_settings.enableAdaptiveBackground && !_isAssetCover) {
             _updateBackgroundColor();
           }
         }
@@ -490,7 +511,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _updateBackgroundColor() async {
-    if (!_settings.enableAdaptiveBackground) {
+    if (!_settings.enableAdaptiveBackground || _isAssetCover) {
       return;
     }
     try {
@@ -523,6 +544,24 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       print("Ошибка при извлечении цвета: $e");
       await Future.delayed(const Duration(seconds: 5));
       await _updateBackgroundColor();
+    }
+  }
+
+  Widget _buildCoverWidget() {
+    if (_isAssetCover) {
+      return Image.asset(
+        _coverUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+      );
+    } else {
+      return CachedNetworkImage(
+        imageUrl: _coverUrl,
+        fit: BoxFit.cover,
+        errorWidget: (context, url, error) =>
+            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+      );
     }
   }
 
@@ -647,6 +686,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Expanded(
+                              flex: 1,
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -723,6 +763,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               ),
                             ),
                             Expanded(
+                              flex: 1,
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -742,15 +783,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         borderRadius: const BorderRadius.all(
                                           Radius.circular(8),
                                         ),
-                                        child: CachedNetworkImage(
-                                          imageUrl: _coverUrl,
-                                          fit: BoxFit.cover,
-                                          errorWidget: (context, url, error) =>
-                                              Image.asset(
-                                                'assets/vt-videoplaceholder.png',
-                                                fit: BoxFit.cover,
-                                              ),
-                                        ),
+                                        child: _buildCoverWidget(),
                                       ),
                                     ),
                                   ),
@@ -758,6 +791,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               ),
                             ),
                             Expanded(
+                              flex: 2,
                               child: Padding(
                                 padding: const EdgeInsets.only(
                                   left: 20,
@@ -796,13 +830,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              mainTitle,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 16,
+                                            Flexible(
+                                              // Добавили Flexible для избежания overflow
+                                              child: Text(
+                                                mainTitle,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 16,
+                                                ),
+                                                textAlign: TextAlign.left,
                                               ),
-                                              textAlign: TextAlign.left,
                                             ),
                                             if (parenthetical != null)
                                               Text(
@@ -943,15 +980,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       borderRadius: const BorderRadius.all(
                                         Radius.circular(8),
                                       ),
-                                      child: CachedNetworkImage(
-                                        imageUrl: _coverUrl,
-                                        fit: BoxFit.cover,
-                                        errorWidget: (context, url, error) =>
-                                            Image.asset(
-                                              'assets/vt-videoplaceholder.png',
-                                              fit: BoxFit.cover,
-                                            ),
-                                      ),
+                                      child: _buildCoverWidget(),
                                     ),
                                   ),
                                   const SizedBox(height: 10),
@@ -1014,7 +1043,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: orientation == Orientation.landscape ? 80 : 70,
+                          top: orientation == Orientation.landscape ? 50 : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1022,302 +1051,68 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               return Opacity(
                                 opacity: _menuOpacityAnimation.value,
                                 child: Transform.translate(
-                                  offset: _menuOffsetAnimation.value,
+                                  offset: _menuOffsetAnimation
+                                      .value, // Slide-in справа
                                   child: Container(
-                                    width: 195,
+                                    width: orientation == Orientation.landscape
+                                        ? 180
+                                        : 195,
+                                    constraints: BoxConstraints(
+                                      maxHeight:
+                                          MediaQuery.of(context).size.height *
+                                          0.7,
+                                    ),
                                     color: const Color(0xFF1a1a1a),
                                     padding: const EdgeInsets.all(10),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
+                                    child: ListView(
+                                      // ListView для лучшей прокрутки
+                                      shrinkWrap: true,
+                                      physics:
+                                          const AlwaysScrollableScrollPhysics(),
                                       children: [
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[0]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[0]
-                                                    .reverse(),
-                                            onTap: () => _onMenuItemTap(
-                                              0,
-                                              () => _launchURL(
-                                                'https://t.me/vtornikshow',
-                                              ),
-                                            ),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[0],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[0]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: Text(
-                                                      AppLocalizations.of(
-                                                        context,
-                                                      ).telegram,
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF00aced,
-                                                        ),
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                        _buildMenuItem(
+                                          0,
+                                          () => _launchURL(
+                                            'https://t.me/vtornikshow',
                                           ),
+                                          AppLocalizations.of(context).telegram,
+                                          Colors.blue,
                                         ),
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[1]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[1]
-                                                    .reverse(),
-                                            onTap: () => _onMenuItemTap(
-                                              1,
-                                              () => _launchURL(
-                                                'https://t.me/beastybeats23',
-                                              ),
-                                            ),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[1],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[1]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: Text(
-                                                      AppLocalizations.of(
-                                                        context,
-                                                      ).chat,
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF00aced,
-                                                        ),
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                        _buildMenuItem(
+                                          1,
+                                          () => _launchURL(
+                                            'https://t.me/beastybeats23',
                                           ),
+                                          AppLocalizations.of(context).chat,
+                                          Colors.blue,
                                         ),
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[2]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[2]
-                                                    .reverse(),
-                                            onTap: () => _onMenuItemTap(
-                                              2,
-                                              () => _launchURL(
-                                                'https://vtrnk.online/stream.html',
-                                              ),
-                                            ),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[2],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[2]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: Text(
-                                                      AppLocalizations.of(
-                                                        context,
-                                                      ).videoStream,
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF00aced,
-                                                        ),
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
+                                        _buildMenuItem(
+                                          2,
+                                          () => _launchURL(
+                                            'https://vtrnk.online/stream.html',
                                           ),
+                                          AppLocalizations.of(
+                                            context,
+                                          ).videoStream,
+                                          Colors.blue,
                                         ),
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[3]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[3]
-                                                    .reverse(),
-                                            onTap: () => _onMenuItemTap(
-                                              3,
-                                              _showSettingsDialog,
-                                            ),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[3],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[3]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: Text(
-                                                      AppLocalizations.of(
-                                                        context,
-                                                      ).settings,
-                                                      style: const TextStyle(
-                                                        color: Color(
-                                                          0xFF00aced,
-                                                        ),
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          ),
+                                        _buildMenuItem(
+                                          3,
+                                          _showSettingsDialog,
+                                          AppLocalizations.of(context).settings,
+                                          Colors.blue,
                                         ),
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[4]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[4]
-                                                    .reverse(),
-                                            onTap: () => _onMenuItemTap(
-                                              4,
-                                              () => _showLanguageDialog(),
-                                            ),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[4],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[4]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: const Text(
-                                                      '🇬🇧 🇷🇺 🇮🇱',
-                                                      style: TextStyle(
-                                                        color: Color(
-                                                          0xFF00aced,
-                                                        ),
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          ),
+                                        _buildMenuItem(
+                                          4,
+                                          () => _showLanguageDialog(),
+                                          '🇬🇧 🇷🇺 🇮🇱',
+                                          Colors.blue,
                                         ),
-                                        Material(
-                                          type: MaterialType.transparency,
-                                          child: InkWell(
-                                            splashColor: const Color(
-                                              0xFF333333,
-                                            ),
-                                            onTapDown: (_) =>
-                                                _menuItemControllers[5]
-                                                    .forward(),
-                                            onTapCancel: () =>
-                                                _menuItemControllers[5]
-                                                    .reverse(),
-                                            onTap: () =>
-                                                _onMenuItemTap(5, _toggleMenu),
-                                            child: AnimatedBuilder(
-                                              animation:
-                                                  _menuItemScaleAnimations[5],
-                                              builder: (context, child) {
-                                                return Transform.scale(
-                                                  scale:
-                                                      _menuItemScaleAnimations[5]
-                                                          .value,
-                                                  child: Container(
-                                                    width: double.infinity,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          vertical: 8,
-                                                        ),
-                                                    child: Text(
-                                                      AppLocalizations.of(
-                                                        context,
-                                                      ).close,
-                                                      style: const TextStyle(
-                                                        color: Colors.grey,
-                                                        fontSize: 18,
-                                                      ),
-                                                      textAlign: TextAlign.end,
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          ),
+                                        _buildMenuItem(
+                                          5,
+                                          _toggleMenu,
+                                          AppLocalizations.of(context).close,
+                                          Colors.grey,
                                         ),
                                       ],
                                     ),
@@ -1335,6 +1130,40 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildMenuItem(
+    int index,
+    VoidCallback callback,
+    String text,
+    Color color,
+  ) {
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        splashColor: const Color(0xFF333333),
+        onTapDown: (_) => _menuItemControllers[index].forward(),
+        onTapCancel: () => _menuItemControllers[index].reverse(),
+        onTap: () => _onMenuItemTap(index, callback),
+        child: AnimatedBuilder(
+          animation: _menuItemScaleAnimations[index],
+          builder: (context, child) {
+            return Transform.scale(
+              scale: _menuItemScaleAnimations[index].value,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  text,
+                  style: TextStyle(color: color, fontSize: 18),
+                  textAlign: TextAlign.end,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -1401,7 +1230,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   late IO.Socket _socket;
   String _artist = "VTRNK";
   String _title = "Stream";
-  String _coverUrl = 'asset:///assets/vt-videoplaceholder.png';
+  String _coverUrl = 'assets/vt-videoplaceholder.png';
   String? _currentStreamTitle;
 
   AudioPlayerHandler() {
@@ -1436,7 +1265,7 @@ class AudioPlayerHandler extends BaseAudioHandler
             album: 'VTRNK Radio',
             title: 'VTRNK Radio',
             artist: 'Stream',
-            artUri: Uri.parse('asset:///assets/vt-videoplaceholder.png'),
+            artUri: Uri.parse('assets/vt-videoplaceholder.png'),
             duration: null,
           ),
         ),
