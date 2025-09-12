@@ -1083,7 +1083,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: orientation == Orientation.landscape ? 70 : 70,
+                          top: Orientation.landscape == Orientation.landscape
+                              ? 70
+                              : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1093,7 +1095,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 child: Transform.translate(
                                   offset: _menuOffsetAnimation.value,
                                   child: Container(
-                                    width: orientation == Orientation.landscape
+                                    width:
+                                        Orientation.landscape ==
+                                            Orientation.landscape
                                         ? 180
                                         : 195,
                                     constraints: BoxConstraints(
@@ -1329,6 +1333,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   void loadCover() {
+    print('loadCover triggered');
     _fetchCoverUrl();
     _updateMediaMetadata();
   }
@@ -1407,11 +1412,13 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchCoverUrl() async {
     try {
-      print('FetchCover start');
+      print('FetchCover start: requesting https://vtrnk.online/get_cover_path');
       final coverResponse = await http
           .get(Uri.parse('https://vtrnk.online/get_cover_path'))
           .timeout(const Duration(seconds: 10));
-      print("Ответ от /get_cover_path: ${coverResponse.body}");
+      print(
+        "FetchCover response: status=${coverResponse.statusCode}, body=${coverResponse.body}",
+      );
       if (coverResponse.statusCode == 200) {
         final coverData =
             jsonDecode(coverResponse.body) as Map<String, dynamic>;
@@ -1435,6 +1442,10 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   void _updateMediaMetadata({String? title}) {
+    if (title == null && _title == null) {
+      print('UpdateMediaMetadata skipped: no title');
+      return;
+    }
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
