@@ -341,11 +341,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 AppLocalizations.of(context).settings,
                 style: const TextStyle(color: Colors.white),
               ),
-              content: SizedBox(
-                width: double.maxFinite,
-                height: MediaQuery.of(context).size.height * 0.6, // Размер окна
+              content: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                  maxHeight: MediaQuery.of(context).size.height * 0.6,
+                ),
                 child: SingleChildScrollView(
-                  // Прокрутка для настроек
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
