@@ -24,15 +24,21 @@ Future<void> main() async {
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
-      await JustAudioBackground.init(
-        androidNotificationChannelId: 'com.example.radio_app_new.channel.audio',
-        androidNotificationChannelName: 'VTRNK Radio Playback',
-        androidNotificationChannelDescription:
-            'VTRNK Radio audio playback controls',
-        androidNotificationOngoing: true,
-        androidNotificationIcon: 'mipmap/ic_launcher',
-        androidStopForegroundOnPause: true,
-      );
+      try {
+        await JustAudioBackground.init(
+          androidNotificationChannelId:
+              'com.example.radio_app_new.channel.audio',
+          androidNotificationChannelName: 'VTRNK Radio Playback',
+          androidNotificationChannelDescription:
+              'VTRNK Radio audio playback controls',
+          androidNotificationOngoing: true,
+          androidNotificationIcon: 'mipmap/ic_launcher',
+          androidStopForegroundOnPause: true,
+        );
+        print('JustAudioBackground init success');
+      } catch (e) {
+        print('JustAudioBackground init error: $e');
+      }
       runApp(const MyApp());
     },
     (error, stackTrace) {
@@ -178,7 +184,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late List<double> _randomSpeeds;
   final Random _random = Random();
   final int barCount = 14;
-  late AudioPlayerHandler _audioHandler;
+  AudioPlayerHandler? _audioHandler; // Nullable для safe init
   bool _isPlaying = false;
   String _artist = "Ожидание исполнителя...";
   String _title = "Ожидание трека...";
@@ -244,10 +250,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
     _menuOffsetAnimation =
         Tween<Offset>(
-          begin: const Offset(
-            -0.2,
-            0.0,
-          ), // Изменено на отрицательный для slide-in справа
+          begin: const Offset(-0.2, 0.0),
           end: const Offset(0.0, 0.0),
         ).animate(
           CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
@@ -404,7 +407,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           style: const TextStyle(color: Colors.white),
                         ),
                         value: _settings.enableCoverLoading,
-                        onChanged: (value) {
+                        onChanged: (value) async {
                           setDialogState(() {
                             _settings = _settings.copyWith(
                               enableCoverLoading: value,
@@ -412,11 +415,20 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {
                             _isAssetCover = !value;
-                            if (_isAssetCover) {
+                            if (value) {
+                              _audioHandler?.loadCover();
+                              if (_settings.enableAdaptiveBackground) {
+                                _updateBackgroundColor();
+                              }
+                            } else {
                               _coverUrl = 'assets/vt-videoplaceholder.png';
                             }
                           });
-                          _settings.saveToPrefs();
+                          await _settings.saveToPrefs();
+                          // Delay для UI update после fetch
+                          await Future.delayed(
+                            const Duration(milliseconds: 500),
+                          );
                         },
                       ),
                       SwitchListTile(
@@ -456,14 +468,19 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _initAll() async {
+    print('InitAll start');
     try {
       _settings = await AppSettings.loadFromPrefs();
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
+      } else {
+        print('Init: Loading cover');
+        _audioHandler?.loadCover();
       }
       await _initAudioPlayer();
-      _audioHandler.playbackState.listen((playbackState) {
+      print('AudioHandler init success');
+      _audioHandler!.playbackState.listen((playbackState) {
         if (mounted) {
           setState(() {
             _isPlaying = playbackState.playing;
@@ -476,28 +493,33 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           });
         }
       });
-      _audioHandler.mediaItem.listen((MediaItem? item) {
-        if (mounted && item != null) {
-          setState(() {
-            _artist = item.artist ?? "VTRNK";
-            _title = item.title;
-            if (_settings.enableCoverLoading) {
-              _isAssetCover = false;
-              _coverUrl =
-                  item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
+      try {
+        _audioHandler!.mediaItem.listen((MediaItem? item) {
+          if (mounted && item != null) {
+            setState(() {
+              _artist = item.artist ?? "VTRNK";
+              _title = item.title;
+              if (_settings.enableCoverLoading && !_isAssetCover) {
+                _coverUrl =
+                    item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
+              }
+            });
+            if (_settings.enableAdaptiveBackground && !_isAssetCover) {
+              _updateBackgroundColor();
             }
-          });
-          if (_settings.enableAdaptiveBackground && !_isAssetCover) {
-            _updateBackgroundColor();
           }
-        }
-      });
+        });
+      } catch (e) {
+        print('MediaItem listen error: $e');
+      }
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
+      print('InitAll success');
     } catch (e) {
+      print('InitAll error: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -508,14 +530,26 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _initAudioPlayer() async {
-    _audioHandler = AudioPlayerHandler();
+    try {
+      print('InitAudioPlayer start');
+      _audioHandler = AudioPlayerHandler();
+      print('AudioPlayerHandler created');
+    } catch (e) {
+      print('AudioPlayerHandler init error: $e');
+      rethrow;
+    }
   }
 
   Future<void> _updateBackgroundColor() async {
-    if (!_settings.enableAdaptiveBackground || _isAssetCover) {
+    if (!_settings.enableAdaptiveBackground ||
+        _isAssetCover ||
+        _coverUrl.startsWith('assets/') ||
+        _coverUrl.startsWith('file://')) {
+      print('UpdateBG skipped: asset or disabled');
       return;
     }
     try {
+      print('UpdateBG: Loading palette for $_coverUrl');
       final PaletteGenerator palette = await PaletteGenerator.fromImageProvider(
         NetworkImage(_coverUrl),
         maximumColorCount: 10,
@@ -573,9 +607,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       }
       _buttonController.forward().then((_) => _buttonController.reverse());
       if (_isPlaying) {
-        await _audioHandler.pause();
+        await _audioHandler?.pause();
       } else {
-        await _audioHandler.play();
+        await _audioHandler?.play();
       }
     } catch (e) {
       print("Ошибка при переключении: $e");
@@ -591,7 +625,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     for (var controller in _menuItemControllers) {
       controller.dispose();
     }
-    _audioHandler.stop();
+    _audioHandler?.stop();
     super.dispose();
   }
 
@@ -645,7 +679,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     if (_errorMessage.isNotEmpty) {
       return Scaffold(
         body: Center(
-          child: Text(_errorMessage, style: const TextStyle(color: Colors.red)),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_errorMessage, style: const TextStyle(color: Colors.red)),
+              ElevatedButton(onPressed: _initAll, child: const Text('Retry')),
+            ],
+          ),
         ),
       );
     }
@@ -675,6 +715,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         return Scaffold(
           backgroundColor: currentColor,
           body: Stack(
+            clipBehavior: Clip.none,
             children: [
               OrientationBuilder(
                 builder: (context, orientation) {
@@ -683,208 +724,207 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                   return Stack(
                     children: [
                       if (orientation == Orientation.landscape)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              flex: 1,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.start,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 60),
-                                    child: SizedBox(
-                                      width: 150,
-                                      child: Image.asset(
-                                        'assets/logovtrnk.png',
-                                        fit: BoxFit.contain,
+                        SizedBox.expand(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 60),
+                                      child: SizedBox(
+                                        width: 150,
+                                        child: Image.asset(
+                                          'assets/logovtrnk.png',
+                                          fit: BoxFit.contain,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 30),
-                                  if (_settings.showEqualizer)
-                                    SizedBox(
-                                      height: 40,
-                                      width: 150,
+                                    const SizedBox(height: 30),
+                                    if (_settings.showEqualizer)
+                                      SizedBox(
+                                        height: 40,
+                                        width: 150,
+                                        child: AnimatedBuilder(
+                                          animation: _controller,
+                                          builder: (context, child) {
+                                            return CustomPaint(
+                                              painter: EqualizerPainter(
+                                                progress: _controller.value,
+                                                barCount: barCount,
+                                                randomOffsets: _randomOffsets,
+                                                randomMultipliers:
+                                                    _randomMultipliers,
+                                                randomSpeeds: _randomSpeeds,
+                                                isPlaying: _isPlaying,
+                                                barWidth: 9.0,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    const SizedBox(height: 40),
+                                    Center(
                                       child: AnimatedBuilder(
-                                        animation: _controller,
+                                        animation: _buttonScaleAnimation,
                                         builder: (context, child) {
-                                          return CustomPaint(
-                                            painter: EqualizerPainter(
-                                              progress: _controller.value,
-                                              barCount: barCount,
-                                              randomOffsets: _randomOffsets,
-                                              randomMultipliers:
-                                                  _randomMultipliers,
-                                              randomSpeeds: _randomSpeeds,
-                                              isPlaying: _isPlaying,
-                                              barWidth: 9.0,
+                                          return Transform.scale(
+                                            scale: _buttonScaleAnimation.value,
+                                            child: SizedBox(
+                                              width: 105,
+                                              height: 52.5,
+                                              child: ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(
+                                                    0xFF808080,
+                                                  ),
+                                                  shape:
+                                                      const RoundedRectangleBorder(
+                                                        borderRadius:
+                                                            BorderRadius.zero,
+                                                      ),
+                                                ),
+                                                onPressed: _togglePlayPause,
+                                                child: Icon(
+                                                  _isPlaying
+                                                      ? Icons.pause
+                                                      : Icons.play_arrow,
+                                                  color: Colors.white,
+                                                  size: 30,
+                                                ),
+                                              ),
                                             ),
                                           );
                                         },
                                       ),
                                     ),
-                                  const SizedBox(height: 40),
-                                  Center(
-                                    child: AnimatedBuilder(
-                                      animation: _buttonScaleAnimation,
-                                      builder: (context, child) {
-                                        return Transform.scale(
-                                          scale: _buttonScaleAnimation.value,
-                                          child: SizedBox(
-                                            width: 105,
-                                            height: 52.5,
-                                            child: ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(
-                                                  0xFF808080,
-                                                ),
-                                                shape:
-                                                    const RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.zero,
-                                                    ),
-                                              ),
-                                              onPressed: _togglePlayPause,
-                                              child: Icon(
-                                                _isPlaying
-                                                    ? Icons.pause
-                                                    : Icons.play_arrow,
-                                                color: Colors.white,
-                                                size: 30,
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              flex: 1,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxHeight: coverSize,
-                                      maxWidth: coverSize,
-                                    ),
-                                    child: Container(
-                                      decoration: const BoxDecoration(
-                                        color: Color(0xFF1a1a1a),
-                                        borderRadius: BorderRadius.all(
-                                          Radius.circular(8),
-                                        ),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: const BorderRadius.all(
-                                          Radius.circular(8),
-                                        ),
-                                        child: _buildCoverWidget(),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  left: 20,
-                                  right: 20,
+                                  ],
                                 ),
+                              ),
+                              Expanded(
                                 child: Column(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const SizedBox(height: 60),
-                                        Text(
-                                          statusText,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 15),
-                                        Text(
-                                          _artist,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                          ),
-                                          textAlign: TextAlign.left,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Flexible(
-                                              // Добавили Flexible для избежания overflow
-                                              child: Text(
-                                                mainTitle,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 16,
-                                                ),
-                                                textAlign: TextAlign.left,
-                                              ),
-                                            ),
-                                            if (parenthetical != null)
-                                              Text(
-                                                '($parenthetical)',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 14,
-                                                ),
-                                                textAlign: TextAlign.left,
-                                              ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 30,
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxHeight: coverSize,
+                                        maxWidth: coverSize,
                                       ),
-                                      child: const Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Developed by',
-                                            style: TextStyle(
-                                              color: Colors.grey,
-                                              fontSize: 16,
-                                            ),
+                                      child: Container(
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF1a1a1a),
+                                          borderRadius: BorderRadius.all(
+                                            Radius.circular(8),
                                           ),
-                                          Text(
-                                            'Beasty Beats 2025',
-                                            style: TextStyle(
-                                              color: Colors.grey,
-                                              fontSize: 16,
-                                            ),
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: const BorderRadius.all(
+                                            Radius.circular(8),
                                           ),
-                                        ],
+                                          child: _buildCoverWidget(),
+                                        ),
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
-                          ],
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 20,
+                                    right: 20,
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const SizedBox(height: 60),
+                                          Text(
+                                            statusText,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 15),
+                                          Text(
+                                            _artist,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 18,
+                                            ),
+                                            textAlign: TextAlign.left,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  mainTitle,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                  ),
+                                                  textAlign: TextAlign.left,
+                                                ),
+                                              ),
+                                              if (parenthetical != null)
+                                                Text(
+                                                  '($parenthetical)',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 14,
+                                                  ),
+                                                  textAlign: TextAlign.left,
+                                                ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 30,
+                                        ),
+                                        child: const Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Developed by',
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Beasty Beats 2025',
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         )
                       else
                         Center(
@@ -1044,7 +1084,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: orientation == Orientation.landscape ? 50 : 70,
+                          top: orientation == Orientation.landscape ? 40 : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1052,8 +1092,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               return Opacity(
                                 opacity: _menuOpacityAnimation.value,
                                 child: Transform.translate(
-                                  offset: _menuOffsetAnimation
-                                      .value, // Slide-in справа
+                                  offset: _menuOffsetAnimation.value,
                                   child: Container(
                                     width: orientation == Orientation.landscape
                                         ? 180
@@ -1064,12 +1103,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           0.7,
                                     ),
                                     color: const Color(0xFF1a1a1a),
-                                    padding: const EdgeInsets.all(10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 0,
+                                    ),
                                     child: ListView(
-                                      // ListView для лучшей прокрутки
                                       shrinkWrap: true,
                                       physics:
                                           const AlwaysScrollableScrollPhysics(),
+                                      padding: EdgeInsets.zero,
                                       children: [
                                         _buildMenuItem(
                                           0,
@@ -1077,7 +1119,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             'https://t.me/vtornikshow',
                                           ),
                                           AppLocalizations.of(context).telegram,
-                                          Colors.blue,
+                                          const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           1,
@@ -1085,7 +1127,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             'https://t.me/beastybeats23',
                                           ),
                                           AppLocalizations.of(context).chat,
-                                          Colors.blue,
+                                          const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           2,
@@ -1095,19 +1137,19 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           AppLocalizations.of(
                                             context,
                                           ).videoStream,
-                                          Colors.blue,
+                                          const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           3,
                                           _showSettingsDialog,
                                           AppLocalizations.of(context).settings,
-                                          Colors.blue,
+                                          const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           4,
                                           () => _showLanguageDialog(),
                                           '🇬🇧 🇷🇺 🇮🇱',
-                                          Colors.blue,
+                                          const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           5,
@@ -1228,28 +1270,37 @@ class EqualizerPainter extends CustomPainter {
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   static final _player = AudioPlayer();
-  late IO.Socket _socket;
+  IO.Socket? _socket; // Nullable
   String _artist = "VTRNK";
   String _title = "Stream";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
   String? _currentStreamTitle;
+  int _retryCount = 0;
+  static const int maxRetries = 3;
 
   AudioPlayerHandler() {
-    _player.playbackEventStream.map(_transformEvent).listen((event) {
-      playbackState.add(event);
-    });
-    _player.setLoopMode(LoopMode.off);
-    _player.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed) {
-        print("Stream completed unexpectedly - reconnecting");
-        reloadStream();
-        _player.play();
-      } else if (state == ProcessingState.buffering) {
-        _updateMediaMetadata(title: "Buffering...");
-      }
-    });
-    _loadInitialTrack();
-    _initWebSocket();
+    try {
+      print('AudioHandler constructor start');
+      _player.playbackEventStream.map(_transformEvent).listen((event) {
+        playbackState.add(event);
+      });
+      _player.setLoopMode(LoopMode.off);
+      _player.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          print("Stream completed unexpectedly - reconnecting");
+          reloadStream();
+          _player.play();
+        } else if (state == ProcessingState.buffering) {
+          _updateMediaMetadata(title: "Buffering...");
+        }
+      });
+      _loadInitialTrack();
+      _initWebSocket();
+      print('AudioHandler constructor success');
+    } catch (e) {
+      print('AudioHandler constructor error: $e');
+      _updateMediaMetadata(title: "Ошибка аудио: $e");
+    }
   }
 
   Future<void> _loadInitialTrack() async {
@@ -1278,27 +1329,49 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
+  void loadCover() {
+    _fetchCoverUrl();
+    _updateMediaMetadata();
+  }
+
   void _initWebSocket() {
-    _socket = IO.io(
-      'https://vtrnk.online',
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableAutoConnect()
-          .build(),
-    );
-    _socket.onConnect((_) {
-      print('WebSocket подключён');
-      _fetchTrackInfo();
-    });
-    _socket.on('track_update', (data) {
-      print("Получено track_update: $data");
-      if (data is Map && !isVideoStreamActive(data)) {
-        _artist = data['artist']?.toString() ?? _artist;
-        _title = data['title']?.toString() ?? "Stream";
-        _fetchCoverUrl();
+    try {
+      print('WebSocket init start');
+      _socket = IO.io(
+        'https://vtrnk.online',
+        IO.OptionBuilder()
+            .setTransports(['websocket'])
+            .enableAutoConnect()
+            .build(),
+      );
+      _socket!.onConnect((_) {
+        print('WebSocket подключён');
+        _retryCount = 0;
+        _fetchTrackInfo();
+      });
+      _socket!.on('track_update', (data) {
+        print("Получено track_update: $data");
+        if (data is Map && !isVideoStreamActive(data)) {
+          _artist = data['artist']?.toString() ?? _artist;
+          _title = data['title']?.toString() ?? "Stream";
+          _fetchCoverUrl();
+        }
+      });
+      _socket!.onDisconnect((_) {
+        print('WebSocket отключён');
+        if (_retryCount < maxRetries) {
+          _retryCount++;
+          Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
+        }
+      });
+      print('WebSocket init success');
+    } catch (e) {
+      print('WebSocket init error: $e');
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
       }
-    });
-    _socket.onDisconnect((_) => print('WebSocket отключён'));
+    }
   }
 
   bool isVideoStreamActive(Map data) {
@@ -1307,6 +1380,7 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchTrackInfo() async {
     try {
+      print('FetchTrack start');
       final response = await http
           .get(Uri.parse('https://vtrnk.online/track'))
           .timeout(const Duration(seconds: 10));
@@ -1324,13 +1398,17 @@ class AudioPlayerHandler extends BaseAudioHandler
     } catch (e) {
       print("Ошибка при запросе данных: $e");
       _updateMediaMetadata(title: "Ошибка подключения");
-      await Future.delayed(const Duration(seconds: 5));
-      await _fetchTrackInfo();
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        await Future.delayed(const Duration(seconds: 5));
+        await _fetchTrackInfo();
+      }
     }
   }
 
   Future<void> _fetchCoverUrl() async {
     try {
+      print('FetchCover start');
       final coverResponse = await http
           .get(Uri.parse('https://vtrnk.online/get_cover_path'))
           .timeout(const Duration(seconds: 10));
@@ -1349,8 +1427,11 @@ class AudioPlayerHandler extends BaseAudioHandler
     } catch (e) {
       print("Ошибка при запросе обложки: $e");
       _updateMediaMetadata();
-      await Future.delayed(const Duration(seconds: 5));
-      await _fetchCoverUrl();
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        await Future.delayed(const Duration(seconds: 5));
+        await _fetchCoverUrl();
+      }
     }
   }
 
@@ -1440,7 +1521,7 @@ class AudioPlayerHandler extends BaseAudioHandler
   @override
   Future<void> stop() async {
     try {
-      _socket.disconnect();
+      _socket?.disconnect();
       await _player.stop();
     } catch (e) {
       print("Ошибка остановки: $e");
