@@ -184,7 +184,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   late List<double> _randomSpeeds;
   final Random _random = Random();
   final int barCount = 14;
-  AudioPlayerHandler? _audioHandler; // Nullable для safe init
+  AudioPlayerHandler? _audioHandler;
   bool _isPlaying = false;
   String _artist = "Ожидание исполнителя...";
   String _title = "Ожидание трека...";
@@ -425,7 +425,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             }
                           });
                           await _settings.saveToPrefs();
-                          // Delay для UI update после fetch
                           await Future.delayed(
                             const Duration(milliseconds: 500),
                           );
@@ -1084,7 +1083,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: orientation == Orientation.landscape ? 40 : 70,
+                          top: orientation == Orientation.landscape ? 70 : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1270,7 +1269,7 @@ class EqualizerPainter extends CustomPainter {
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   static final _player = AudioPlayer();
-  IO.Socket? _socket; // Nullable
+  IO.Socket? _socket;
   String _artist = "VTRNK";
   String _title = "Stream";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
