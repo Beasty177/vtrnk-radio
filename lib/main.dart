@@ -101,6 +101,57 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
+// Модель для настроек приложения
+class AppSettings {
+  final bool enableVibration;
+  final bool enableAdaptiveBackground;
+  final bool enableCoverLoading;
+  final bool showEqualizer;
+
+  AppSettings({
+    this.enableVibration = true,
+    this.enableAdaptiveBackground = true,
+    this.enableCoverLoading = true,
+    this.showEqualizer = true,
+  });
+
+  AppSettings copyWith({
+    bool? enableVibration,
+    bool? enableAdaptiveBackground,
+    bool? enableCoverLoading,
+    bool? showEqualizer,
+  }) {
+    return AppSettings(
+      enableVibration: enableVibration ?? this.enableVibration,
+      enableAdaptiveBackground:
+          enableAdaptiveBackground ?? this.enableAdaptiveBackground,
+      enableCoverLoading: enableCoverLoading ?? this.enableCoverLoading,
+      showEqualizer: showEqualizer ?? this.showEqualizer,
+    );
+  }
+
+  // Сохранение настроек
+  Future<void> saveToPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('enableVibration', enableVibration);
+    await prefs.setBool('enableAdaptiveBackground', enableAdaptiveBackground);
+    await prefs.setBool('enableCoverLoading', enableCoverLoading);
+    await prefs.setBool('showEqualizer', showEqualizer);
+  }
+
+  // Загрузка настроек
+  static Future<AppSettings> loadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return AppSettings(
+      enableVibration: prefs.getBool('enableVibration') ?? true,
+      enableAdaptiveBackground:
+          prefs.getBool('enableAdaptiveBackground') ?? true,
+      enableCoverLoading: prefs.getBool('enableCoverLoading') ?? true,
+      showEqualizer: prefs.getBool('showEqualizer') ?? true,
+    );
+  }
+}
+
 class MyHomePage extends StatefulWidget {
   final void Function(String) onLocaleChange;
 
@@ -135,6 +186,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
   String _errorMessage = '';
+  late AppSettings _settings;
 
   @override
   void initState() {
@@ -273,14 +325,128 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     );
   }
 
+  Future<void> _showSettingsDialog() async {
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1a1a1a),
+              title: Text(
+                AppLocalizations.of(context).settings,
+                style: const TextStyle(color: Colors.white),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    title: Text(
+                      AppLocalizations.of(context).vibration,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    value: _settings.enableVibration,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _settings = _settings.copyWith(enableVibration: value);
+                      });
+                      setState(() {});
+                      _settings.saveToPrefs();
+                    },
+                  ),
+                  SwitchListTile(
+                    title: Text(
+                      AppLocalizations.of(context).adaptiveBackground,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    value: _settings.enableAdaptiveBackground,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _settings = _settings.copyWith(
+                          enableAdaptiveBackground: value,
+                        );
+                      });
+                      setState(() {
+                        if (!value) {
+                          _backgroundColor = Colors.black;
+                          _colorAnimation =
+                              ColorTween(
+                                begin: _backgroundColor,
+                                end: _backgroundColor,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: _colorController,
+                                  curve: Curves.easeInOut,
+                                ),
+                              );
+                        } else {
+                          _updateBackgroundColor();
+                        }
+                      });
+                      _settings.saveToPrefs();
+                    },
+                  ),
+                  SwitchListTile(
+                    title: Text(
+                      AppLocalizations.of(context).coverLoading,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    value: _settings.enableCoverLoading,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _settings = _settings.copyWith(
+                          enableCoverLoading: value,
+                        );
+                      });
+                      setState(() {
+                        _coverUrl = value
+                            ? _coverUrl
+                            : 'asset:///assets/vt-videoplaceholder.png';
+                      });
+                      _settings.saveToPrefs();
+                    },
+                  ),
+                  SwitchListTile(
+                    title: Text(
+                      AppLocalizations.of(context).showEqualizer,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    value: _settings.showEqualizer,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _settings = _settings.copyWith(showEqualizer: value);
+                      });
+                      setState(() {});
+                      _settings.saveToPrefs();
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    AppLocalizations.of(context).close,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _initAll() async {
     try {
+      _settings = await AppSettings.loadFromPrefs();
       await _initAudioPlayer();
       _audioHandler.playbackState.listen((playbackState) {
         if (mounted) {
           setState(() {
             _isPlaying = playbackState.playing;
-            if (_isPlaying) {
+            if (_isPlaying && _settings.showEqualizer) {
               _controller.repeat(reverse: true);
             } else {
               _controller.stop();
@@ -294,11 +460,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           setState(() {
             _artist = item.artist ?? "VTRNK";
             _title = item.title;
-            _coverUrl =
-                item.artUri?.toString() ??
-                'asset:///assets/vt-videoplaceholder.png';
+            _coverUrl = _settings.enableCoverLoading
+                ? (item.artUri?.toString() ??
+                      'asset:///assets/vt-videoplaceholder.png')
+                : 'asset:///assets/vt-videoplaceholder.png';
           });
-          _updateBackgroundColor();
+          if (_settings.enableAdaptiveBackground) {
+            _updateBackgroundColor();
+          }
         }
       });
       if (mounted) {
@@ -321,6 +490,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _updateBackgroundColor() async {
+    if (!_settings.enableAdaptiveBackground) {
+      return;
+    }
     try {
       final PaletteGenerator palette = await PaletteGenerator.fromImageProvider(
         NetworkImage(_coverUrl),
@@ -356,7 +528,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   Future<void> _togglePlayPause() async {
     try {
-      HapticFeedback.lightImpact();
+      if (_settings.enableVibration) {
+        HapticFeedback.lightImpact();
+      }
       _buttonController.forward().then((_) => _buttonController.reverse());
       if (_isPlaying) {
         await _audioHandler.pause();
@@ -384,7 +558,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   void _toggleMenu() {
     setState(() {
       _isMenuOpen = !_isMenuOpen;
-      HapticFeedback.lightImpact();
+      if (_settings.enableVibration) {
+        HapticFeedback.lightImpact();
+      }
       if (_isMenuOpen) {
         _menuController.forward();
       } else {
@@ -412,7 +588,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   void _onMenuItemTap(int index, VoidCallback callback) {
-    HapticFeedback.lightImpact();
+    if (_settings.enableVibration) {
+      HapticFeedback.lightImpact();
+    }
     _menuItemControllers[index].forward().then((_) {
       _menuItemControllers[index].reverse();
       callback();
@@ -484,27 +662,28 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                     ),
                                   ),
                                   const SizedBox(height: 30),
-                                  SizedBox(
-                                    height: 40,
-                                    width: 150,
-                                    child: AnimatedBuilder(
-                                      animation: _controller,
-                                      builder: (context, child) {
-                                        return CustomPaint(
-                                          painter: EqualizerPainter(
-                                            progress: _controller.value,
-                                            barCount: barCount,
-                                            randomOffsets: _randomOffsets,
-                                            randomMultipliers:
-                                                _randomMultipliers,
-                                            randomSpeeds: _randomSpeeds,
-                                            isPlaying: _isPlaying,
-                                            barWidth: 9.0,
-                                          ),
-                                        );
-                                      },
+                                  if (_settings.showEqualizer)
+                                    SizedBox(
+                                      height: 40,
+                                      width: 150,
+                                      child: AnimatedBuilder(
+                                        animation: _controller,
+                                        builder: (context, child) {
+                                          return CustomPaint(
+                                            painter: EqualizerPainter(
+                                              progress: _controller.value,
+                                              barCount: barCount,
+                                              randomOffsets: _randomOffsets,
+                                              randomMultipliers:
+                                                  _randomMultipliers,
+                                              randomSpeeds: _randomSpeeds,
+                                              isPlaying: _isPlaying,
+                                              barWidth: 9.0,
+                                            ),
+                                          );
+                                        },
+                                      ),
                                     ),
-                                  ),
                                   const SizedBox(height: 40),
                                   Center(
                                     child: AnimatedBuilder(
@@ -688,27 +867,28 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                     ),
                                   ),
                                   const SizedBox(height: 30),
-                                  SizedBox(
-                                    height: 40,
-                                    width: 200,
-                                    child: AnimatedBuilder(
-                                      animation: _controller,
-                                      builder: (context, child) {
-                                        return CustomPaint(
-                                          painter: EqualizerPainter(
-                                            progress: _controller.value,
-                                            barCount: barCount,
-                                            randomOffsets: _randomOffsets,
-                                            randomMultipliers:
-                                                _randomMultipliers,
-                                            randomSpeeds: _randomSpeeds,
-                                            isPlaying: _isPlaying,
-                                            barWidth: 12.0,
-                                          ),
-                                        );
-                                      },
+                                  if (_settings.showEqualizer)
+                                    SizedBox(
+                                      height: 40,
+                                      width: 200,
+                                      child: AnimatedBuilder(
+                                        animation: _controller,
+                                        builder: (context, child) {
+                                          return CustomPaint(
+                                            painter: EqualizerPainter(
+                                              progress: _controller.value,
+                                              barCount: barCount,
+                                              randomOffsets: _randomOffsets,
+                                              randomMultipliers:
+                                                  _randomMultipliers,
+                                              randomSpeeds: _randomSpeeds,
+                                              isPlaying: _isPlaying,
+                                              barWidth: 12.0,
+                                            ),
+                                          );
+                                        },
+                                      ),
                                     ),
-                                  ),
                                   const SizedBox(height: 15),
                                   Text(
                                     statusText,
@@ -1015,7 +1195,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                                     .reverse(),
                                             onTap: () => _onMenuItemTap(
                                               3,
-                                              () => print("Настройки pressed"),
+                                              _showSettingsDialog,
                                             ),
                                             child: AnimatedBuilder(
                                               animation:
