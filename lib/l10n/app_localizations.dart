@@ -104,6 +104,50 @@ class AppLocalizations {
         return 'Выберите язык';
     }
   }
+
+  String get vibration {
+    switch (localeName) {
+      case 'en':
+        return 'Vibration on tap';
+      case 'he':
+        return 'רטט בלחיצה';
+      default:
+        return 'Вибрация при нажатии';
+    }
+  }
+
+  String get adaptiveBackground {
+    switch (localeName) {
+      case 'en':
+        return 'Adaptive background';
+      case 'he':
+        return 'רקע דינמי';
+      default:
+        return 'Адаптивный фон';
+    }
+  }
+
+  String get coverLoading {
+    switch (localeName) {
+      case 'en':
+        return 'Load track cover';
+      case 'he':
+        return 'טעינת עטיפת השיר';
+      default:
+        return 'Загрузка обложки трека';
+    }
+  }
+
+  String get showEqualizer {
+    switch (localeName) {
+      case 'en':
+        return 'Show equalizer';
+      case 'he':
+        return 'הצג אקולייזר';
+      default:
+        return 'Показывать эквалайзер';
+    }
+  }
 }
 
 class _AppLocalizationsDelegate

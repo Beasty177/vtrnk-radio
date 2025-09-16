@@ -32,3 +32,6 @@ flutter_*.log
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Запуст локального и серверного окна vs
+launch_radio.bat
