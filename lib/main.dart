@@ -17,7 +17,7 @@ import 'l10n/app_localizations.dart';
 
 AudioHandler? globalAudioHandler;
 
-// Top-level function to extract dominant color
+// Top-level function to extract dominant color with preference for vibrant colors
 Color? extractDominantColor(Uint8List imageBytes) {
   try {
     debugPrint(
@@ -31,33 +31,57 @@ Color? extractDominantColor(Uint8List imageBytes) {
     final pixels = image.getBytes();
     debugPrint(
         'Image decoded: width=${image.width}, height=${image.height}, pixels=${pixels.length}');
-    // Use histogram for dominant color
+
+    // Convert RGB to HSV and track vibrant colors
     Map<int, int> colorCounts = {};
+    Map<int, double> saturationMap = {};
     for (int i = 0; i < pixels.length; i += 4) {
       int r = pixels[i];
       int g = pixels[i + 1];
       int b = pixels[i + 2];
-      int color = (r << 16) | (g << 8) | b;
-      colorCounts[color] = (colorCounts[color] ?? 0) + 1;
+
+      // Convert RGB to HSV
+      double rNorm = r / 255.0;
+      double gNorm = g / 255.0;
+      double bNorm = b / 255.0;
+      double max = [rNorm, gNorm, bNorm].reduce((a, b) => a > b ? a : b);
+      double min = [rNorm, gNorm, bNorm].reduce((a, b) => a < b ? a : b);
+      double saturation = max == 0 ? 0 : (max - min) / max;
+
+      // Only consider colors with sufficient saturation to avoid grey
+      if (saturation > 0.3) {
+        int color = (r << 16) | (g << 8) | b;
+        colorCounts[color] = (colorCounts[color] ?? 0) + 1;
+        saturationMap[color] = saturation;
+      }
     }
+
     if (colorCounts.isEmpty) {
-      debugPrint('No pixels found for color extraction');
+      debugPrint('No vibrant pixels found for color extraction');
       return null;
     }
+
+    // Find the most frequent vibrant color
     int maxCount = 0;
     int dominantColorInt = 0;
+    double maxSaturation = 0;
     colorCounts.forEach((color, count) {
-      if (count > maxCount) {
+      double saturation = saturationMap[color] ?? 0;
+      // Prioritize colors with higher saturation and sufficient frequency
+      if (count > maxCount ||
+          (count == maxCount && saturation > maxSaturation)) {
         maxCount = count;
         dominantColorInt = color;
+        maxSaturation = saturation;
       }
     });
+
     final dominantR = (dominantColorInt >> 16) & 0xFF;
     final dominantG = (dominantColorInt >> 8) & 0xFF;
     final dominantB = dominantColorInt & 0xFF;
     final result = Color.fromRGBO(dominantR, dominantG, dominantB, 1.0);
     debugPrint(
-        'Dominant color extracted: R=$dominantR G=$dominantG B=$dominantB');
+        'Dominant color extracted: R=$dominantR G=$dominantG B=$dominantB, saturation=$maxSaturation');
     return result;
   } catch (e) {
     debugPrint("Error in color extraction: $e");
@@ -235,6 +259,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   String _artist = "Waiting for artist...";
   String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
+  String? _previousCoverUrl;
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
@@ -454,6 +479,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 _updateBackgroundColor();
                               }
                             } else {
+                              _previousCoverUrl = _coverUrl;
                               _coverUrl = 'assets/vt-videoplaceholder.png';
                               _isAssetCover = true;
                               _backgroundColor = Colors.black;
@@ -550,6 +576,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               _artist = item.artist ?? "VTRNK";
               _title = item.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
+                _previousCoverUrl = _coverUrl;
                 _coverUrl =
                     item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
               }
@@ -571,6 +598,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               _artist = initialItem.artist ?? "VTRNK";
               _title = initialItem.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
+                _previousCoverUrl = _coverUrl;
                 _coverUrl = initialItem.artUri?.toString() ??
                     'assets/vt-videoplaceholder.png';
               }
@@ -605,32 +633,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         _isAssetCover ||
         _coverUrl.startsWith('assets/') ||
         _coverUrl.startsWith('file://')) {
-      debugPrint('UpdateBG skipped: asset or disabled');
+      debugPrint(
+          'UpdateBG skipped: enableAdaptiveBackground=${_settings.enableAdaptiveBackground}, isAssetCover=$_isAssetCover, coverUrl=$_coverUrl');
       return;
     }
     try {
       debugPrint('UpdateBG: Loading palette for $_coverUrl');
-      final response = await http.get(Uri.parse(_coverUrl));
+      final response = await http
+          .get(Uri.parse(_coverUrl))
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
-        debugPrint('Failed to load image: ${response.statusCode}');
+        debugPrint(
+            'Failed to load image: ${response.statusCode}, body=${response.body}');
         return;
       }
-      final dominantColor = extractDominantColor(response.bodyBytes);
+      debugPrint(
+          'Image loaded successfully, bytes=${response.bodyBytes.length}');
+      final dominantColor =
+          await compute(extractDominantColor, response.bodyBytes);
       if (dominantColor == null) {
         debugPrint('Failed to extract dominant color');
         return;
       }
       if (mounted) {
-        final luminance = dominantColor.computeLuminance();
-        final targetColor = Color.fromRGBO(
-          (dominantColor.r * 255.0).round() & 0xff,
-          (dominantColor.g * 255.0).round() & 0xff,
-          (dominantColor.b * 255.0).round() & 0xff,
-          luminance > 0.5 ? 0.8 : 1.0,
-        );
         setState(() {
-          _colorAnimation =
-              ColorTween(begin: _backgroundColor, end: targetColor).animate(
+          final luminance = dominantColor.computeLuminance();
+          final targetColor = Color.fromRGBO(
+            (dominantColor.r * 255.0).round() & 0xFF,
+            (dominantColor.g * 255.0).round() & 0xFF,
+            (dominantColor.b * 255.0).round() & 0xFF,
+            luminance > 0.5 ? 0.8 : 1.0,
+          );
+          debugPrint(
+              'Setting background color: $targetColor, luminance=$luminance');
+          _colorAnimation = ColorTween(
+            begin: _backgroundColor,
+            end: targetColor,
+          ).animate(
             CurvedAnimation(
               parent: _colorController,
               curve: Curves.easeInOut,
@@ -643,13 +682,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     } catch (e) {
       debugPrint("Error extracting color: $e");
       await Future.delayed(const Duration(seconds: 5));
-      await _updateBackgroundColor();
+      if (mounted) {
+        await _updateBackgroundColor();
+      }
     }
   }
 
   Widget _buildCoverWidget() {
     debugPrint(
-        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover');
+        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover, _previousCoverUrl=$_previousCoverUrl');
     if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       return Image.asset(
         _coverUrl,
@@ -661,15 +702,45 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         },
       );
     } else {
-      return CachedNetworkImage(
-        imageUrl: _coverUrl,
+      return FadeInImage(
+        placeholder: MemoryImage(Uint8List(0)), // Transparent placeholder
+        image: NetworkImage(_coverUrl),
+        fadeInDuration: const Duration(milliseconds: 300),
+        fadeOutDuration: const Duration(milliseconds: 300),
         fit: BoxFit.cover,
-        placeholder: (context, url) =>
-            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
-        errorWidget: (context, url, error) {
-          debugPrint('CachedNetworkImage error: $error, url=$url');
-          return Image.asset('assets/vt-videoplaceholder.png',
-              fit: BoxFit.cover);
+        placeholderErrorBuilder: (context, error, stackTrace) {
+          debugPrint('FadeInImage placeholder error: $error');
+          return _previousCoverUrl != null &&
+                  !_previousCoverUrl!.startsWith('assets/')
+              ? Image.network(
+                  _previousCoverUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Image.asset(
+                    'assets/vt-videoplaceholder.png',
+                    fit: BoxFit.cover,
+                  ),
+                )
+              : Image.asset(
+                  'assets/vt-videoplaceholder.png',
+                  fit: BoxFit.cover,
+                );
+        },
+        imageErrorBuilder: (context, error, stackTrace) {
+          debugPrint('FadeInImage image error: $error, url=$_coverUrl');
+          return _previousCoverUrl != null &&
+                  !_previousCoverUrl!.startsWith('assets/')
+              ? Image.network(
+                  _previousCoverUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Image.asset(
+                    'assets/vt-videoplaceholder.png',
+                    fit: BoxFit.cover,
+                  ),
+                )
+              : Image.asset(
+                  'assets/vt-videoplaceholder.png',
+                  fit: BoxFit.cover,
+                );
         },
       );
     }
@@ -1481,9 +1552,10 @@ class AudioPlayerHandler extends BaseAudioHandler
       if (coverResponse.statusCode == 200) {
         final coverData =
             jsonDecode(coverResponse.body) as Map<String, dynamic>;
-        _coverUrl =
+        final newCoverUrl =
             'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
-        debugPrint("Cover updated: $_coverUrl");
+        debugPrint("Cover updated: $newCoverUrl");
+        _coverUrl = newCoverUrl;
         _updateMediaMetadata();
       } else {
         debugPrint("Cover fetch error: ${coverResponse.statusCode}");
