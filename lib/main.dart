@@ -17,6 +17,54 @@ import 'l10n/app_localizations.dart';
 
 AudioHandler? globalAudioHandler;
 
+// Top-level function to extract dominant color
+Color? extractDominantColor(Uint8List imageBytes) {
+  try {
+    debugPrint(
+        'Extracting dominant color from image bytes, length=${imageBytes.length}');
+    final image = img.decodeImage(imageBytes);
+    if (image == null) {
+      debugPrint('Failed to decode image for color extraction');
+      return null;
+    }
+
+    final pixels = image.getBytes();
+    debugPrint(
+        'Image decoded: width=${image.width}, height=${image.height}, pixels=${pixels.length}');
+    // Use histogram for dominant color
+    Map<int, int> colorCounts = {};
+    for (int i = 0; i < pixels.length; i += 4) {
+      int r = pixels[i];
+      int g = pixels[i + 1];
+      int b = pixels[i + 2];
+      int color = (r << 16) | (g << 8) | b;
+      colorCounts[color] = (colorCounts[color] ?? 0) + 1;
+    }
+    if (colorCounts.isEmpty) {
+      debugPrint('No pixels found for color extraction');
+      return null;
+    }
+    int maxCount = 0;
+    int dominantColorInt = 0;
+    colorCounts.forEach((color, count) {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantColorInt = color;
+      }
+    });
+    final dominantR = (dominantColorInt >> 16) & 0xFF;
+    final dominantG = (dominantColorInt >> 8) & 0xFF;
+    final dominantB = dominantColorInt & 0xFF;
+    final result = Color.fromRGBO(dominantR, dominantG, dominantB, 1.0);
+    debugPrint(
+        'Dominant color extracted: R=$dominantR G=$dominantG B=$dominantB');
+    return result;
+  } catch (e) {
+    debugPrint("Error in color extraction: $e");
+    return null;
+  }
+}
+
 Future<void> main() async {
   runZonedGuarded(
     () async {
@@ -349,6 +397,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {});
                           _settings.saveToPrefs();
+                          debugPrint('Vibration setting changed: $value');
                         },
                       ),
                       SwitchListTile(
@@ -364,6 +413,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             );
                           });
                           setState(() {
+                            debugPrint(
+                                'Adaptive background setting changed: $value');
                             if (!value) {
                               _backgroundColor = Colors.black;
                               _colorAnimation = ColorTween(
@@ -375,7 +426,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   curve: Curves.easeInOut,
                                 ),
                               );
-                            } else {
+                            } else if (!_isAssetCover) {
                               _updateBackgroundColor();
                             }
                           });
@@ -395,6 +446,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             );
                           });
                           setState(() {
+                            debugPrint('Cover loading setting changed: $value');
                             _isAssetCover = !value;
                             if (value && _audioHandler != null) {
                               _audioHandler!.loadCover();
@@ -404,6 +456,16 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             } else {
                               _coverUrl = 'assets/vt-videoplaceholder.png';
                               _isAssetCover = true;
+                              _backgroundColor = Colors.black;
+                              _colorAnimation = ColorTween(
+                                begin: _backgroundColor,
+                                end: _backgroundColor,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: _colorController,
+                                  curve: Curves.easeInOut,
+                                ),
+                              );
                             }
                           });
                           await _settings.saveToPrefs();
@@ -425,6 +487,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {});
                           _settings.saveToPrefs();
+                          debugPrint('Show equalizer setting changed: $value');
                         },
                       ),
                     ],
@@ -451,6 +514,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     debugPrint('InitAll start');
     try {
       _settings = await AppSettings.loadFromPrefs();
+      debugPrint(
+          'Settings loaded: enableCoverLoading=${_settings.enableCoverLoading}, enableAdaptiveBackground=${_settings.enableAdaptiveBackground}');
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
@@ -505,8 +570,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             setState(() {
               _artist = initialItem.artist ?? "VTRNK";
               _title = initialItem.title;
-              _coverUrl = initialItem.artUri?.toString() ??
-                  'assets/vt-videoplaceholder.png';
+              if (_settings.enableCoverLoading && !_isAssetCover) {
+                _coverUrl = initialItem.artUri?.toString() ??
+                    'assets/vt-videoplaceholder.png';
+              }
             });
             if (_settings.enableAdaptiveBackground && !_isAssetCover) {
               _updateBackgroundColor();
@@ -533,34 +600,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
-  Future<Color?> _extractDominantColor(Uint8List imageBytes) async {
-    try {
-      final image = img.decodeImage(imageBytes);
-      if (image == null) {
-        debugPrint('Failed to decode image for color extraction');
-        return null;
-      }
-
-      final pixels = image.getBytes();
-      int red = 0, green = 0, blue = 0, count = 0;
-      for (int i = 0; i < pixels.length; i += 4) {
-        red += pixels[i];
-        green += pixels[i + 1];
-        blue += pixels[i + 2];
-        count++;
-      }
-      return Color.fromRGBO(
-        (red ~/ count),
-        (green ~/ count),
-        (blue ~/ count),
-        1.0,
-      );
-    } catch (e) {
-      debugPrint("Error in compute color extraction: $e");
-      return null;
-    }
-  }
-
   Future<void> _updateBackgroundColor() async {
     if (!_settings.enableAdaptiveBackground ||
         _isAssetCover ||
@@ -576,21 +615,20 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         debugPrint('Failed to load image: ${response.statusCode}');
         return;
       }
-      final dominantColor =
-          await compute(_extractDominantColor, response.bodyBytes);
+      final dominantColor = extractDominantColor(response.bodyBytes);
       if (dominantColor == null) {
         debugPrint('Failed to extract dominant color');
         return;
       }
       if (mounted) {
+        final luminance = dominantColor.computeLuminance();
+        final targetColor = Color.fromRGBO(
+          (dominantColor.r * 255.0).round() & 0xff,
+          (dominantColor.g * 255.0).round() & 0xff,
+          (dominantColor.b * 255.0).round() & 0xff,
+          luminance > 0.5 ? 0.8 : 1.0,
+        );
         setState(() {
-          final luminance = dominantColor.computeLuminance();
-          final targetColor = Color.fromRGBO(
-            (dominantColor.r * 255.0).round() & 0xff,
-            (dominantColor.g * 255.0).round() & 0xff,
-            (dominantColor.b * 255.0).round() & 0xff,
-            luminance > 0.5 ? 0.8 : 1.0,
-          );
           _colorAnimation =
               ColorTween(begin: _backgroundColor, end: targetColor).animate(
             CurvedAnimation(
@@ -605,9 +643,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     } catch (e) {
       debugPrint("Error extracting color: $e");
       await Future.delayed(const Duration(seconds: 5));
-      if (mounted) {
-        await _updateBackgroundColor();
-      }
+      await _updateBackgroundColor();
     }
   }
 
@@ -1305,7 +1341,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         }
       });
       _initWebSocket();
-      _fetchTrackInfo(); // Call in constructor to load initial data
+      _fetchTrackInfo();
       _loadInitialTrack();
       debugPrint('AudioHandler constructor success');
     } catch (e) {
