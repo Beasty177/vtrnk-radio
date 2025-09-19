@@ -1,19 +1,21 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
 import 'package:audio_service/audio_service.dart';
-import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:palette_generator/palette_generator.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/foundation.dart';
 import 'l10n/app_localizations.dart';
+
+AudioHandler? globalAudioHandler;
 
 Future<void> main() async {
   runZonedGuarded(
@@ -25,24 +27,23 @@ Future<void> main() async {
         DeviceOrientation.landscapeRight,
       ]);
       try {
-        await JustAudioBackground.init(
-          androidNotificationChannelId:
-              'com.example.radio_app_new.channel.audio',
-          androidNotificationChannelName: 'VTRNK Radio Playback',
-          androidNotificationChannelDescription:
-              'VTRNK Radio audio playback controls',
-          androidNotificationOngoing: true,
-          androidNotificationIcon: 'mipmap/ic_launcher',
-          androidStopForegroundOnPause: true,
+        globalAudioHandler = await AudioService.init(
+          builder: () => AudioPlayerHandler(),
+          config: const AudioServiceConfig(
+            androidNotificationChannelId: 'com.vtrnk.radio.channel.audio',
+            androidNotificationChannelName: 'VTRNK Radio Playback',
+            androidNotificationOngoing: true,
+            androidStopForegroundOnPause: true,
+          ),
         );
-        print('JustAudioBackground init success');
+        debugPrint('AudioService init success');
       } catch (e) {
-        print('JustAudioBackground init error: $e');
+        debugPrint('Audio initialization error: $e');
       }
       runApp(const MyApp());
     },
     (error, stackTrace) {
-      print('Unhandled error in main: $error');
+      debugPrint('Unhandled error in main: $error');
     },
   );
 }
@@ -55,7 +56,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final _localeNotifier = ValueNotifier<Locale>(const Locale('ru'));
+  final _localeNotifier = ValueNotifier<Locale>(const Locale('en'));
 
   @override
   void initState() {
@@ -65,7 +66,7 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
-    final locale = prefs.getString('locale') ?? 'ru';
+    final locale = prefs.getString('locale') ?? 'en';
     _localeNotifier.value = Locale(locale);
   }
 
@@ -89,7 +90,7 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           title: 'VTRNK Radio',
           locale: locale,
-          localizationsDelegates: const [
+          localizationsDelegates: [
             AppLocalizations.delegate,
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -107,7 +108,6 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-// Модель для настроек приложения
 class AppSettings {
   final bool enableVibration;
   final bool enableAdaptiveBackground;
@@ -136,7 +136,6 @@ class AppSettings {
     );
   }
 
-  // Сохранение настроек
   Future<void> saveToPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('enableVibration', enableVibration);
@@ -145,7 +144,6 @@ class AppSettings {
     await prefs.setBool('showEqualizer', showEqualizer);
   }
 
-  // Загрузка настроек
   static Future<AppSettings> loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     return AppSettings(
@@ -186,8 +184,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   final int barCount = 14;
   AudioPlayerHandler? _audioHandler;
   bool _isPlaying = false;
-  String _artist = "Ожидание исполнителя...";
-  String _title = "Ожидание трека...";
+  String _artist = "VTRNK";
+  String _title = "Stream";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
@@ -198,49 +196,36 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _randomOffsets = List.generate(
-      barCount,
-      (_) => _random.nextDouble() * pi * 2,
-    );
-    _randomMultipliers = List.generate(
-      barCount,
-      (_) => _random.nextDouble() * 0.8 + 0.2,
-    );
-    _randomSpeeds = List.generate(
-      barCount,
-      (_) => 0.8 + _random.nextDouble() * 0.7,
-    );
-    _controller =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 1500),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed ||
-              status == AnimationStatus.dismissed) {
-            setState(() {
-              _randomOffsets = List.generate(
-                barCount,
-                (_) => _random.nextDouble() * pi * 2,
-              );
-              _randomMultipliers = List.generate(
-                barCount,
-                (_) => _random.nextDouble() * 0.8 + 0.2,
-              );
-              _randomSpeeds = List.generate(
-                barCount,
-                (_) => 0.8 + _random.nextDouble() * 0.7,
-              );
-            });
-          }
-        });
+    _randomOffsets =
+        List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
+    _randomMultipliers =
+        List.generate(barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
+    _randomSpeeds =
+        List.generate(barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed ||
+            status == AnimationStatus.dismissed) {
+          setState(() {
+            _randomOffsets =
+                List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
+            _randomMultipliers = List.generate(
+                barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
+            _randomSpeeds = List.generate(
+                barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
+          });
+        }
+      });
     _colorController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-    _colorAnimation = ColorTween(begin: _backgroundColor, end: _backgroundColor)
-        .animate(
-          CurvedAnimation(parent: _colorController, curve: Curves.easeInOut),
-        );
+    _colorAnimation =
+        ColorTween(begin: _backgroundColor, end: _backgroundColor).animate(
+      CurvedAnimation(parent: _colorController, curve: Curves.easeInOut),
+    );
     _menuController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -248,13 +233,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _menuOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
     );
-    _menuOffsetAnimation =
-        Tween<Offset>(
-          begin: const Offset(-0.2, 0.0),
-          end: const Offset(0.0, 0.0),
-        ).animate(
-          CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
-        );
+    _menuOffsetAnimation = Tween<Offset>(
+      begin: const Offset(-0.2, 0.0),
+      end: const Offset(0.0, 0.0),
+    ).animate(
+      CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
+    );
     _buttonController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
@@ -270,11 +254,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       ),
     );
     _menuItemScaleAnimations = _menuItemControllers
-        .map(
-          (controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
-            CurvedAnimation(parent: controller, curve: Curves.easeInOut),
-          ),
-        )
+        .map((controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
+              CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+            ))
         .toList();
     _initAll();
   }
@@ -384,16 +366,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           setState(() {
                             if (!value) {
                               _backgroundColor = Colors.black;
-                              _colorAnimation =
-                                  ColorTween(
-                                    begin: _backgroundColor,
-                                    end: _backgroundColor,
-                                  ).animate(
-                                    CurvedAnimation(
-                                      parent: _colorController,
-                                      curve: Curves.easeInOut,
-                                    ),
-                                  );
+                              _colorAnimation = ColorTween(
+                                begin: _backgroundColor,
+                                end: _backgroundColor,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: _colorController,
+                                  curve: Curves.easeInOut,
+                                ),
+                              );
                             } else {
                               _updateBackgroundColor();
                             }
@@ -415,8 +396,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {
                             _isAssetCover = !value;
-                            if (value) {
-                              _audioHandler?.loadCover();
+                            if (value && _audioHandler != null) {
+                              _audioHandler!.loadCover();
                               if (_settings.enableAdaptiveBackground) {
                                 _updateBackgroundColor();
                               }
@@ -426,8 +407,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           await _settings.saveToPrefs();
                           await Future.delayed(
-                            const Duration(milliseconds: 500),
-                          );
+                              const Duration(milliseconds: 500));
                         },
                       ),
                       SwitchListTile(
@@ -467,18 +447,21 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _initAll() async {
-    print('InitAll start');
+    debugPrint('InitAll start');
     try {
       _settings = await AppSettings.loadFromPrefs();
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
-      } else {
-        print('Init: Loading cover');
-        _audioHandler?.loadCover();
       }
-      await _initAudioPlayer();
-      print('AudioHandler init success');
+      _audioHandler = globalAudioHandler as AudioPlayerHandler?;
+      if (_audioHandler == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Audio initialization failed';
+        });
+        return;
+      }
       _audioHandler!.playbackState.listen((playbackState) {
         if (mounted) {
           setState(() {
@@ -509,33 +492,50 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           }
         });
       } catch (e) {
-        print('MediaItem listen error: $e');
+        debugPrint('MediaItem listen error: $e');
+      }
+      if (_settings.enableCoverLoading && !_isAssetCover) {
+        _audioHandler!.loadCover();
       }
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
-      print('InitAll success');
+      debugPrint('InitAll success');
     } catch (e) {
-      print('InitAll error: $e');
+      debugPrint('InitAll error: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Ошибка инициализации: $e';
+          _errorMessage = 'Initialization error: $e';
         });
       }
     }
   }
 
-  Future<void> _initAudioPlayer() async {
+  Future<Color?> _extractDominantColor(Uint8List imageBytes) async {
     try {
-      print('InitAudioPlayer start');
-      _audioHandler = AudioPlayerHandler();
-      print('AudioPlayerHandler created');
+      final image = img.decodeImage(imageBytes);
+      if (image == null) return null;
+
+      final pixels = image.getBytes();
+      int red = 0, green = 0, blue = 0, count = 0;
+      for (int i = 0; i < pixels.length; i += 4) {
+        red += pixels[i];
+        green += pixels[i + 1];
+        blue += pixels[i + 2];
+        count++;
+      }
+      return Color.fromRGBO(
+        (red ~/ count),
+        (green ~/ count),
+        (blue ~/ count),
+        1.0,
+      );
     } catch (e) {
-      print('AudioPlayerHandler init error: $e');
-      rethrow;
+      debugPrint("Error in compute color extraction: $e");
+      return null;
     }
   }
 
@@ -544,38 +544,44 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         _isAssetCover ||
         _coverUrl.startsWith('assets/') ||
         _coverUrl.startsWith('file://')) {
-      print('UpdateBG skipped: asset or disabled');
+      debugPrint('UpdateBG skipped: asset or disabled');
       return;
     }
     try {
-      print('UpdateBG: Loading palette for $_coverUrl');
-      final PaletteGenerator palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(_coverUrl),
-        maximumColorCount: 10,
-      );
+      debugPrint('UpdateBG: Loading palette for $_coverUrl');
+      final response = await http.get(Uri.parse(_coverUrl));
+      if (response.statusCode != 200) {
+        debugPrint('Failed to load image: ${response.statusCode}');
+        return;
+      }
+      final dominantColor =
+          await compute(_extractDominantColor, response.bodyBytes);
+      if (dominantColor == null) {
+        debugPrint('Failed to extract dominant color');
+        return;
+      }
       if (mounted) {
-        final newColor = palette.dominantColor?.color ?? Colors.black;
-        final luminance = newColor.computeLuminance();
+        final luminance = dominantColor.computeLuminance();
         final targetColor = Color.fromRGBO(
-          newColor.red,
-          newColor.green,
-          newColor.blue,
-          0.5,
-        ).withOpacity(luminance > 0.5 ? 0.8 : 1.0);
+          (dominantColor.r * 255.0).round() & 0xff,
+          (dominantColor.g * 255.0).round() & 0xff,
+          (dominantColor.b * 255.0).round() & 0xff,
+          luminance > 0.5 ? 0.8 : 1.0,
+        );
         setState(() {
           _colorAnimation =
               ColorTween(begin: _backgroundColor, end: targetColor).animate(
-                CurvedAnimation(
-                  parent: _colorController,
-                  curve: Curves.easeInOut,
-                ),
-              );
+            CurvedAnimation(
+              parent: _colorController,
+              curve: Curves.easeInOut,
+            ),
+          );
           _backgroundColor = targetColor;
         });
         _colorController.forward(from: 0.0);
       }
     } catch (e) {
-      print("Ошибка при извлечении цвета: $e");
+      debugPrint("Error extracting color: $e");
       await Future.delayed(const Duration(seconds: 5));
       await _updateBackgroundColor();
     }
@@ -593,6 +599,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       return CachedNetworkImage(
         imageUrl: _coverUrl,
         fit: BoxFit.cover,
+        placeholder: (context, url) =>
+            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
         errorWidget: (context, url, error) =>
             Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
       );
@@ -605,13 +613,23 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         HapticFeedback.lightImpact();
       }
       _buttonController.forward().then((_) => _buttonController.reverse());
+      if (_audioHandler == null) {
+        debugPrint('Audio handler not initialized');
+        setState(() {
+          _errorMessage = 'Audio handler not initialized';
+        });
+        return;
+      }
       if (_isPlaying) {
-        await _audioHandler?.pause();
+        await _audioHandler!.pause();
       } else {
-        await _audioHandler?.play();
+        await _audioHandler!.play();
       }
     } catch (e) {
-      print("Ошибка при переключении: $e");
+      debugPrint("Playback error: $e");
+      setState(() {
+        _errorMessage = 'Playback error: $e';
+      });
     }
   }
 
@@ -643,7 +661,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _launchURL(String url) async {
-    final Uri uri = Uri.parse(url);
+    final uri = Uri.parse(url);
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(
@@ -653,10 +671,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               : LaunchMode.platformDefault,
         );
       } else {
-        print("Не удалось открыть URL: $url - приложение не найдено");
+        debugPrint("Could not launch URL: $url - app not found");
       }
     } catch (e) {
-      print("Ошибка при открытии URL: $url - $e");
+      debugPrint("Error launching URL: $url - $e");
     }
   }
 
@@ -690,7 +708,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
     String mainTitle = _title;
     String? parenthetical;
-    final match = RegExp(r'^(.*?)(?:\s*\((.*?)\))?$').firstMatch(_title);
+    final match = RegExp(r'^(.*?)(?:\s*$$ (.*?) $$)?$').firstMatch(_title);
     if (match != null) {
       mainTitle = match.group(1)?.trim() ?? _title;
       parenthetical = match.group(2);
@@ -706,9 +724,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         SystemChrome.setSystemUIOverlayStyle(
           SystemUiOverlayStyle(
             statusBarColor: currentColor,
-            statusBarBrightness: luminance < 0.5
-                ? Brightness.light
-                : Brightness.dark,
+            statusBarBrightness:
+                luminance < 0.5 ? Brightness.light : Brightness.dark,
           ),
         );
         return Scaffold(
@@ -718,8 +735,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             children: [
               OrientationBuilder(
                 builder: (context, orientation) {
-                  final screenHeight = MediaQuery.of(context).size.height;
-                  const coverSize = 320.0;
                   return Stack(
                     children: [
                       if (orientation == Orientation.landscape)
@@ -777,14 +792,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                               height: 52.5,
                                               child: ElevatedButton(
                                                 style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(
-                                                    0xFF808080,
-                                                  ),
+                                                  backgroundColor:
+                                                      const Color(0xFF808080),
                                                   shape:
                                                       const RoundedRectangleBorder(
-                                                        borderRadius:
-                                                            BorderRadius.zero,
-                                                      ),
+                                                    borderRadius:
+                                                        BorderRadius.zero,
+                                                  ),
                                                 ),
                                                 onPressed: _togglePlayPause,
                                                 child: Icon(
@@ -809,20 +823,18 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   children: [
                                     ConstrainedBox(
                                       constraints: const BoxConstraints(
-                                        maxHeight: coverSize,
-                                        maxWidth: coverSize,
+                                        maxHeight: 320.0,
+                                        maxWidth: 320.0,
                                       ),
                                       child: Container(
                                         decoration: const BoxDecoration(
                                           color: Color(0xFF1a1a1a),
                                           borderRadius: BorderRadius.all(
-                                            Radius.circular(8),
-                                          ),
+                                              Radius.circular(8)),
                                         ),
                                         child: ClipRRect(
                                           borderRadius: const BorderRadius.all(
-                                            Radius.circular(8),
-                                          ),
+                                              Radius.circular(8)),
                                           child: _buildCoverWidget(),
                                         ),
                                       ),
@@ -833,9 +845,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.only(
-                                    left: 20,
-                                    right: 20,
-                                  ),
+                                      left: 20, right: 20),
                                   child: Column(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
@@ -851,17 +861,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           Text(
                                             statusText,
                                             style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 16,
-                                            ),
+                                                color: Colors.white,
+                                                fontSize: 16),
                                           ),
                                           const SizedBox(height: 15),
                                           Text(
                                             _artist,
                                             style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 18,
-                                            ),
+                                                color: Colors.white,
+                                                fontSize: 18),
                                             textAlign: TextAlign.left,
                                           ),
                                           const SizedBox(height: 12),
@@ -874,9 +882,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                                 child: Text(
                                                   mainTitle,
                                                   style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 16,
-                                                  ),
+                                                      color: Colors.white,
+                                                      fontSize: 16),
                                                   textAlign: TextAlign.left,
                                                 ),
                                               ),
@@ -884,9 +891,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                                 Text(
                                                   '($parenthetical)',
                                                   style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 14,
-                                                  ),
+                                                      color: Colors.white,
+                                                      fontSize: 14),
                                                   textAlign: TextAlign.left,
                                                 ),
                                             ],
@@ -894,9 +900,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         ],
                                       ),
                                       Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 30,
-                                        ),
+                                        padding:
+                                            const EdgeInsets.only(bottom: 30),
                                         child: const Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
@@ -904,16 +909,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             Text(
                                               'Developed by',
                                               style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 16,
-                                              ),
+                                                  color: Colors.grey,
+                                                  fontSize: 16),
                                             ),
                                             Text(
                                               'Beasty Beats 2025',
                                               style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 16,
-                                              ),
+                                                  color: Colors.grey,
+                                                  fontSize: 16),
                                             ),
                                           ],
                                         ),
@@ -970,17 +973,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   Text(
                                     statusText,
                                     style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                    ),
+                                        color: Colors.white, fontSize: 16),
                                   ),
                                   const SizedBox(height: 15),
                                   Text(
                                     _artist,
                                     style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                    ),
+                                        color: Colors.white, fontSize: 18),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 12),
@@ -990,18 +989,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       Text(
                                         mainTitle,
                                         style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                        ),
+                                            color: Colors.white, fontSize: 16),
                                         textAlign: TextAlign.center,
                                       ),
                                       if (parenthetical != null)
                                         Text(
                                           '($parenthetical)',
                                           style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 14,
-                                          ),
+                                              color: Colors.white,
+                                              fontSize: 14),
                                           textAlign: TextAlign.center,
                                         ),
                                     ],
@@ -1012,14 +1008,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                     height: 320,
                                     decoration: const BoxDecoration(
                                       color: Color(0xFF1a1a1a),
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(8),
-                                      ),
+                                      borderRadius:
+                                          BorderRadius.all(Radius.circular(8)),
                                     ),
                                     child: ClipRRect(
                                       borderRadius: const BorderRadius.all(
-                                        Radius.circular(8),
-                                      ),
+                                          Radius.circular(8)),
                                       child: _buildCoverWidget(),
                                     ),
                                   ),
@@ -1034,14 +1028,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           height: 52.5,
                                           child: ElevatedButton(
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(
-                                                0xFF808080,
-                                              ),
+                                              backgroundColor:
+                                                  const Color(0xFF808080),
                                               shape:
                                                   const RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.zero,
-                                                  ),
+                                                borderRadius: BorderRadius.zero,
+                                              ),
                                             ),
                                             onPressed: _togglePlayPause,
                                             child: Icon(
@@ -1060,9 +1052,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   const Text(
                                     'Developed by Beasty Beats 2025',
                                     style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 16,
-                                    ),
+                                        color: Colors.grey, fontSize: 16),
                                   ),
                                 ],
                               ),
@@ -1083,9 +1073,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: Orientation.landscape == Orientation.landscape
-                              ? 70
-                              : 70,
+                          top: orientation == Orientation.landscape ? 70 : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1095,21 +1083,17 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 child: Transform.translate(
                                   offset: _menuOffsetAnimation.value,
                                   child: Container(
-                                    width:
-                                        Orientation.landscape ==
-                                            Orientation.landscape
+                                    width: orientation == Orientation.landscape
                                         ? 180
                                         : 195,
                                     constraints: BoxConstraints(
                                       maxHeight:
                                           MediaQuery.of(context).size.height *
-                                          0.7,
+                                              0.7,
                                     ),
                                     color: const Color(0xFF1a1a1a),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 0,
-                                    ),
+                                        horizontal: 10, vertical: 0),
                                     child: ListView(
                                       shrinkWrap: true,
                                       physics:
@@ -1119,27 +1103,23 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         _buildMenuItem(
                                           0,
                                           () => _launchURL(
-                                            'https://t.me/vtornikshow',
-                                          ),
+                                              'https://t.me/vtornikshow'),
                                           AppLocalizations.of(context).telegram,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           1,
                                           () => _launchURL(
-                                            'https://t.me/beastybeats23',
-                                          ),
+                                              'https://t.me/beastybeats23'),
                                           AppLocalizations.of(context).chat,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           2,
                                           () => _launchURL(
-                                            'https://vtrnk.online/stream.html',
-                                          ),
-                                          AppLocalizations.of(
-                                            context,
-                                          ).videoStream,
+                                              'https://vtrnk.online/stream.html'),
+                                          AppLocalizations.of(context)
+                                              .videoStream,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
@@ -1180,11 +1160,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildMenuItem(
-    int index,
-    VoidCallback callback,
-    String text,
-    Color color,
-  ) {
+      int index, VoidCallback callback, String text, Color color) {
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
@@ -1273,24 +1249,23 @@ class EqualizerPainter extends CustomPainter {
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   static final _player = AudioPlayer();
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String _artist = "VTRNK";
   String _title = "Stream";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
-  String? _currentStreamTitle;
   int _retryCount = 0;
   static const int maxRetries = 3;
 
   AudioPlayerHandler() {
     try {
-      print('AudioHandler constructor start');
+      debugPrint('AudioHandler constructor start');
       _player.playbackEventStream.map(_transformEvent).listen((event) {
         playbackState.add(event);
       });
       _player.setLoopMode(LoopMode.off);
       _player.processingStateStream.listen((state) {
         if (state == ProcessingState.completed) {
-          print("Stream completed unexpectedly - reconnecting");
+          debugPrint("Stream completed unexpectedly - reconnecting");
           reloadStream();
           _player.play();
         } else if (state == ProcessingState.buffering) {
@@ -1299,10 +1274,10 @@ class AudioPlayerHandler extends BaseAudioHandler
       });
       _loadInitialTrack();
       _initWebSocket();
-      print('AudioHandler constructor success');
+      debugPrint('AudioHandler constructor success');
     } catch (e) {
-      print('AudioHandler constructor error: $e');
-      _updateMediaMetadata(title: "Ошибка аудио: $e");
+      debugPrint('AudioHandler constructor error: $e');
+      _updateMediaMetadata(title: "Audio error: $e");
     }
   }
 
@@ -1325,36 +1300,45 @@ class AudioPlayerHandler extends BaseAudioHandler
           ),
         ),
       );
-      print("Stream source reloaded");
+      debugPrint("Stream source reloaded");
+      _retryCount = 0;
     } catch (e) {
-      print("Ошибка перезагрузки стрима: $e");
-      _updateMediaMetadata(title: "Ошибка подключения");
+      debugPrint("Stream reload error: $e");
+      _updateMediaMetadata(title: "Connection error");
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        await Future.delayed(const Duration(seconds: 5));
+        await reloadStream();
+      } else {
+        debugPrint("Max retries reached for stream reload");
+        _updateMediaMetadata(title: "Failed to connect to stream");
+      }
     }
   }
 
   void loadCover() {
-    print('loadCover triggered');
+    debugPrint('loadCover triggered');
     _fetchCoverUrl();
     _updateMediaMetadata();
   }
 
   void _initWebSocket() {
     try {
-      print('WebSocket init start');
-      _socket = IO.io(
+      debugPrint('WebSocket init start');
+      _socket = io.io(
         'https://vtrnk.online',
-        IO.OptionBuilder()
+        io.OptionBuilder()
             .setTransports(['websocket'])
             .enableAutoConnect()
             .build(),
       );
       _socket!.onConnect((_) {
-        print('WebSocket подключён');
+        debugPrint('WebSocket connected');
         _retryCount = 0;
         _fetchTrackInfo();
       });
       _socket!.on('track_update', (data) {
-        print("Получено track_update: $data");
+        debugPrint("Received track_update: $data");
         if (data is Map && !isVideoStreamActive(data)) {
           _artist = data['artist']?.toString() ?? _artist;
           _title = data['title']?.toString() ?? "Stream";
@@ -1362,15 +1346,15 @@ class AudioPlayerHandler extends BaseAudioHandler
         }
       });
       _socket!.onDisconnect((_) {
-        print('WebSocket отключён');
+        debugPrint('WebSocket disconnected');
         if (_retryCount < maxRetries) {
           _retryCount++;
           Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
         }
       });
-      print('WebSocket init success');
+      debugPrint('WebSocket init success');
     } catch (e) {
-      print('WebSocket init error: $e');
+      debugPrint('WebSocket init error: $e');
       if (_retryCount < maxRetries) {
         _retryCount++;
         Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
@@ -1384,7 +1368,7 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchTrackInfo() async {
     try {
-      print('FetchTrack start');
+      debugPrint('FetchTrack start');
       final response = await http
           .get(Uri.parse('https://vtrnk.online/track'))
           .timeout(const Duration(seconds: 10));
@@ -1396,12 +1380,12 @@ class AudioPlayerHandler extends BaseAudioHandler
         await _fetchCoverUrl();
         _updateMediaMetadata();
       } else {
-        print("Ошибка получения трека: ${response.statusCode}");
-        _updateMediaMetadata(title: "Ошибка получения трека");
+        debugPrint("Track fetch error: ${response.statusCode}");
+        _updateMediaMetadata(title: "Track fetch error");
       }
     } catch (e) {
-      print("Ошибка при запросе данных: $e");
-      _updateMediaMetadata(title: "Ошибка подключения");
+      debugPrint("Error fetching track data: $e");
+      _updateMediaMetadata(title: "Connection error");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
@@ -1412,26 +1396,26 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchCoverUrl() async {
     try {
-      print('FetchCover start: requesting https://vtrnk.online/get_cover_path');
+      debugPrint(
+          'FetchCover start: requesting https://vtrnk.online/get_cover_path');
       final coverResponse = await http
           .get(Uri.parse('https://vtrnk.online/get_cover_path'))
           .timeout(const Duration(seconds: 10));
-      print(
-        "FetchCover response: status=${coverResponse.statusCode}, body=${coverResponse.body}",
-      );
+      debugPrint(
+          "FetchCover response: status=${coverResponse.statusCode}, body=${coverResponse.body}");
       if (coverResponse.statusCode == 200) {
         final coverData =
             jsonDecode(coverResponse.body) as Map<String, dynamic>;
         _coverUrl =
             'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
-        print("Обложка обновлена: $_coverUrl");
+        debugPrint("Cover updated: $_coverUrl");
         _updateMediaMetadata();
       } else {
-        print("Ошибка получения обложки: ${coverResponse.statusCode}");
+        debugPrint("Cover fetch error: ${coverResponse.statusCode}");
         _updateMediaMetadata();
       }
     } catch (e) {
-      print("Ошибка при запросе обложки: $e");
+      debugPrint("Error fetching cover: $e");
       _updateMediaMetadata();
       if (_retryCount < maxRetries) {
         _retryCount++;
@@ -1442,10 +1426,6 @@ class AudioPlayerHandler extends BaseAudioHandler
   }
 
   void _updateMediaMetadata({String? title}) {
-    if (title == null && _title == null) {
-      print('UpdateMediaMetadata skipped: no title');
-      return;
-    }
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
@@ -1454,31 +1434,28 @@ class AudioPlayerHandler extends BaseAudioHandler
       artUri: Uri.parse(_coverUrl),
       duration: null,
     );
-    print(
-      "Обновление MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}",
-    );
+    debugPrint(
+        "Updating MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}");
     updateMediaItem(newItem);
   }
 
-  Future<void> updateMediaItem(MediaItem item) async {
+  @override
+  Future<void> updateMediaItem(MediaItem mediaItem) async {
     try {
-      print(
-        "Updating MediaItem: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
-      );
-      mediaItem.add(item);
-      await updateQueue([item]);
+      debugPrint(
+          "Updating MediaItem: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
+      await updateQueue([mediaItem]);
       playbackState.add(
         playbackState.value.copyWith(
           processingState: AudioProcessingState.ready,
           playing: _player.playing,
         ),
       );
-      await AudioService.updateMediaItem(item);
-      print(
-        "Уведомления обновлены: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
-      );
+      await AudioService.updateMediaItem(mediaItem);
+      debugPrint(
+          "Notifications updated: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
     } catch (e) {
-      print("Ошибка обновления MediaItem: $e");
+      debugPrint("Error updating MediaItem: $e");
     }
   }
 
@@ -1489,8 +1466,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       ],
       systemActions: {MediaAction.seek},
       androidCompactActionIndices: const [0],
-      processingState:
-          {
+      processingState: {
             ProcessingState.idle: AudioProcessingState.idle,
             ProcessingState.loading: AudioProcessingState.loading,
             ProcessingState.buffering: AudioProcessingState.buffering,
@@ -1514,8 +1490,8 @@ class AudioPlayerHandler extends BaseAudioHandler
       }
       await _player.play();
     } catch (e) {
-      print("Ошибка воспроизведения: $e");
-      _updateMediaMetadata(title: "Ошибка воспроизведения");
+      debugPrint("Playback error: $e");
+      _updateMediaMetadata(title: "Playback error");
     }
   }
 
@@ -1524,7 +1500,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     try {
       await _player.pause();
     } catch (e) {
-      print("Ошибка паузы: $e");
+      debugPrint("Pause error: $e");
     }
   }
 
@@ -1534,7 +1510,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       _socket?.disconnect();
       await _player.stop();
     } catch (e) {
-      print("Ошибка остановки: $e");
+      debugPrint("Stop error: $e");
     }
   }
 
@@ -1543,7 +1519,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     try {
       await _player.seek(position);
     } catch (e) {
-      print("Ошибка seek: $e");
+      debugPrint("Seek error: $e");
     }
   }
 

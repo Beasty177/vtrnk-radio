@@ -4,29 +4,28 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.9.0 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  just_audio: ^0.9.46
+  just_audio: ^0.10.5
   just_audio_background: ^0.0.1-beta.17
   audio_service: ^0.18.18
-  http: ^1.5.0
+  http: ^1.2.2
   socket_io_client: ^3.1.2
-  palette_generator: ^0.3.3+7
+  image: ^4.3.4
   url_launcher: ^6.3.1
   cached_network_image: ^3.4.1
-  intl: ^0.20.2
-  shared_preferences: ^2.5.3
+  shared_preferences: ^2.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  flutter_launcher_icons: ^0.14.4
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true

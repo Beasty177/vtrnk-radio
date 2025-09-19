@@ -1,9 +1,11 @@
-```kotlin
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+import java.util.Properties
+import java.io.File
 
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties().apply {
@@ -13,12 +15,12 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.vtrnk.radio" // Изменил на уникальный ID
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.vtrnk.radio"
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17 // Обновлено до JDK 17
+        sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
@@ -27,9 +29,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.vtrnk.radio" // Уникальный ID для Google Play
+        applicationId = "com.vtrnk.radio"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -38,7 +40,7 @@ android {
         create("release") {
             keyAlias = keystoreProperties["keyAlias"] as String?
             keyPassword = keystoreProperties["keyPassword"] as String?
-            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+            storeFile = keystoreProperties["storeFile"]?.let { storeFilePath -> File(storeFilePath as String) }
             storePassword = keystoreProperties["storePassword"] as String?
         }
     }
@@ -46,13 +48,23 @@ android {
     buildTypes {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = false // Отключено сжатие для простоты
-            proguardRules.add(file("proguard-rules.pro"))
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                file("proguard-rules.pro")
+            )
+        }
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+}
+
+dependencies {
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
 }
 
 flutter {
     source = "../.."
 }
-```
