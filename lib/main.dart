@@ -184,8 +184,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   final int barCount = 14;
   AudioPlayerHandler? _audioHandler;
   bool _isPlaying = false;
-  String _artist = "VTRNK";
-  String _title = "Stream";
+  String _artist = "Waiting for artist...";
+  String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
@@ -403,6 +403,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               }
                             } else {
                               _coverUrl = 'assets/vt-videoplaceholder.png';
+                              _isAssetCover = true;
                             }
                           });
                           await _settings.saveToPrefs();
@@ -478,6 +479,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       try {
         _audioHandler!.mediaItem.listen((MediaItem? item) {
           if (mounted && item != null) {
+            debugPrint(
+                'MediaItem received in UI: title=${item.title}, artist=${item.artist}, cover=${item.artUri}');
             setState(() {
               _artist = item.artist ?? "VTRNK";
               _title = item.title;
@@ -491,11 +494,27 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             }
           }
         });
+        // Force initial fetch of track info and cover
+        if (_settings.enableCoverLoading && !_isAssetCover) {
+          _audioHandler!.loadCover();
+          await _audioHandler!.fetchTrackInfo();
+          final initialItem = _audioHandler!.mediaItem.value;
+          if (mounted && initialItem != null) {
+            debugPrint(
+                'Initial MediaItem set: title=${initialItem.title}, artist=${initialItem.artist}, cover=${initialItem.artUri}');
+            setState(() {
+              _artist = initialItem.artist ?? "VTRNK";
+              _title = initialItem.title;
+              _coverUrl = initialItem.artUri?.toString() ??
+                  'assets/vt-videoplaceholder.png';
+            });
+            if (_settings.enableAdaptiveBackground && !_isAssetCover) {
+              _updateBackgroundColor();
+            }
+          }
+        }
       } catch (e) {
         debugPrint('MediaItem listen error: $e');
-      }
-      if (_settings.enableCoverLoading && !_isAssetCover) {
-        _audioHandler!.loadCover();
       }
       if (mounted) {
         setState(() {
@@ -517,7 +536,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Future<Color?> _extractDominantColor(Uint8List imageBytes) async {
     try {
       final image = img.decodeImage(imageBytes);
-      if (image == null) return null;
+      if (image == null) {
+        debugPrint('Failed to decode image for color extraction');
+        return null;
+      }
 
       final pixels = image.getBytes();
       int red = 0, green = 0, blue = 0, count = 0;
@@ -561,14 +583,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         return;
       }
       if (mounted) {
-        final luminance = dominantColor.computeLuminance();
-        final targetColor = Color.fromRGBO(
-          (dominantColor.r * 255.0).round() & 0xff,
-          (dominantColor.g * 255.0).round() & 0xff,
-          (dominantColor.b * 255.0).round() & 0xff,
-          luminance > 0.5 ? 0.8 : 1.0,
-        );
         setState(() {
+          final luminance = dominantColor.computeLuminance();
+          final targetColor = Color.fromRGBO(
+            (dominantColor.r * 255.0).round() & 0xff,
+            (dominantColor.g * 255.0).round() & 0xff,
+            (dominantColor.b * 255.0).round() & 0xff,
+            luminance > 0.5 ? 0.8 : 1.0,
+          );
           _colorAnimation =
               ColorTween(begin: _backgroundColor, end: targetColor).animate(
             CurvedAnimation(
@@ -583,17 +605,24 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     } catch (e) {
       debugPrint("Error extracting color: $e");
       await Future.delayed(const Duration(seconds: 5));
-      await _updateBackgroundColor();
+      if (mounted) {
+        await _updateBackgroundColor();
+      }
     }
   }
 
   Widget _buildCoverWidget() {
-    if (_isAssetCover) {
+    debugPrint(
+        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover');
+    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       return Image.asset(
         _coverUrl,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) =>
-            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('Image.asset error: $error');
+          return Image.asset('assets/vt-videoplaceholder.png',
+              fit: BoxFit.cover);
+        },
       );
     } else {
       return CachedNetworkImage(
@@ -601,8 +630,11 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         fit: BoxFit.cover,
         placeholder: (context, url) =>
             Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
-        errorWidget: (context, url, error) =>
-            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+        errorWidget: (context, url, error) {
+          debugPrint('CachedNetworkImage error: $error, url=$url');
+          return Image.asset('assets/vt-videoplaceholder.png',
+              fit: BoxFit.cover);
+        },
       );
     }
   }
@@ -1272,8 +1304,9 @@ class AudioPlayerHandler extends BaseAudioHandler
           _updateMediaMetadata(title: "Buffering...");
         }
       });
-      _loadInitialTrack();
       _initWebSocket();
+      _fetchTrackInfo(); // Call in constructor to load initial data
+      _loadInitialTrack();
       debugPrint('AudioHandler constructor success');
     } catch (e) {
       debugPrint('AudioHandler constructor error: $e');
@@ -1293,14 +1326,15 @@ class AudioPlayerHandler extends BaseAudioHandler
           tag: MediaItem(
             id: '1',
             album: 'VTRNK Radio',
-            title: 'VTRNK Radio',
-            artist: 'Stream',
-            artUri: Uri.parse('assets/vt-videoplaceholder.png'),
+            title: _title,
+            artist: _artist,
+            artUri: Uri.parse(_coverUrl),
             duration: null,
           ),
         ),
       );
-      debugPrint("Stream source reloaded");
+      debugPrint(
+          "Stream source reloaded with title=$_title, artist=$_artist, cover=$_coverUrl");
       _retryCount = 0;
     } catch (e) {
       debugPrint("Stream reload error: $e");
@@ -1319,7 +1353,10 @@ class AudioPlayerHandler extends BaseAudioHandler
   void loadCover() {
     debugPrint('loadCover triggered');
     _fetchCoverUrl();
-    _updateMediaMetadata();
+  }
+
+  Future<void> fetchTrackInfo() async {
+    await _fetchTrackInfo();
   }
 
   void _initWebSocket() {
@@ -1341,8 +1378,9 @@ class AudioPlayerHandler extends BaseAudioHandler
         debugPrint("Received track_update: $data");
         if (data is Map && !isVideoStreamActive(data)) {
           _artist = data['artist']?.toString() ?? _artist;
-          _title = data['title']?.toString() ?? "Stream";
+          _title = data['title']?.toString() ?? _title;
           _fetchCoverUrl();
+          _updateMediaMetadata();
         }
       });
       _socket!.onDisconnect((_) {
@@ -1375,8 +1413,9 @@ class AudioPlayerHandler extends BaseAudioHandler
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List<dynamic>;
         final trackData = {for (var item in data) item[0]: item[1]};
-        _artist = trackData['artist']?.toString() ?? "VTRNK";
-        _title = trackData['title']?.toString() ?? "Stream";
+        _artist = trackData['artist']?.toString() ?? _artist;
+        _title = trackData['title']?.toString() ?? _title;
+        debugPrint('Track info updated: title=$_title, artist=$_artist');
         await _fetchCoverUrl();
         _updateMediaMetadata();
       } else {
@@ -1436,14 +1475,14 @@ class AudioPlayerHandler extends BaseAudioHandler
     );
     debugPrint(
         "Updating MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}");
-    updateMediaItem(newItem);
+    mediaItem.add(newItem); // Emit to stream for UI update
   }
 
   @override
   Future<void> updateMediaItem(MediaItem mediaItem) async {
     try {
       debugPrint(
-          "Updating MediaItem: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
+          "Updating MediaItem for notifications: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
       await updateQueue([mediaItem]);
       playbackState.add(
         playbackState.value.copyWith(
