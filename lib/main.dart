@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:image/image.dart' as img;
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -130,8 +130,18 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
-    final locale = prefs.getString('locale') ?? 'en';
-    _localeNotifier.value = Locale(locale);
+    final savedLocale = prefs.getString('locale');
+    if (savedLocale == null) {
+      // First app launch: check device locale
+      final deviceLocale = PlatformDispatcher.instance.locale.languageCode;
+      final supportedLocales = ['en', 'ru', 'es', 'fr', 'he'];
+      final defaultLocale =
+          supportedLocales.contains(deviceLocale) ? deviceLocale : 'en';
+      await prefs.setString('locale', defaultLocale);
+      _localeNotifier.value = Locale(defaultLocale);
+    } else {
+      _localeNotifier.value = Locale(savedLocale);
+    }
   }
 
   Future<void> _setLocale(String locale) async {
@@ -163,6 +173,8 @@ class _MyAppState extends State<MyApp> {
           supportedLocales: const [
             Locale('en', ''),
             Locale('ru', ''),
+            Locale('es', ''),
+            Locale('fr', ''),
             Locale('he', ''),
           ],
           home: MyHomePage(onLocaleChange: _setLocale),
@@ -387,6 +399,28 @@ class _MyHomePageState extends State<MyHomePage>
                 ),
                 onTap: () {
                   widget.onLocaleChange('ru');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'Español',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  widget.onLocaleChange('es');
+                  Navigator.pop(context);
+                },
+              ),
+              ListTile(
+                leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'Français',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  widget.onLocaleChange('fr');
                   Navigator.pop(context);
                 },
               ),
@@ -1404,7 +1438,7 @@ class _MyHomePageState extends State<MyHomePage>
                                         _buildMenuItem(
                                           4,
                                           () => _showLanguageDialog(),
-                                          '🇬🇧 🇷🇺 🇮🇱',
+                                          '🇬🇧 🇷🇺 🇪🇸 🇫🇷 🇮🇱',
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(

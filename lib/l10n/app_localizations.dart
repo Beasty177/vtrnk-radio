@@ -23,7 +23,7 @@ class AppLocalizations {
       'adaptiveBackground': 'Adaptive Background',
       'coverLoading': 'Load Cover Art',
       'showEqualizer': 'Show Equalizer',
-      'showExtendedTrackInfo': 'Show Extended Track Info', // New
+      'showExtendedTrackInfo': 'Show Extended Track Info',
       'settings': 'Settings',
       'close': 'Close',
       'telegram': 'Telegram',
@@ -38,7 +38,7 @@ class AppLocalizations {
       'adaptiveBackground': 'Адаптивный фон',
       'coverLoading': 'Загружать обложки',
       'showEqualizer': 'Показывать эквалайзер',
-      'showExtendedTrackInfo': 'Показывать доп. информацию о треке', // New
+      'showExtendedTrackInfo': 'Показывать доп. информацию о треке',
       'settings': 'Настройки',
       'close': 'Закрыть',
       'telegram': 'Телеграм',
@@ -53,7 +53,7 @@ class AppLocalizations {
       'adaptiveBackground': 'רקע דינמי',
       'coverLoading': 'טען תמונת כריכה',
       'showEqualizer': 'הצג אקולייזר',
-      'showExtendedTrackInfo': 'הצג מידע מורחב על השיר', // New
+      'showExtendedTrackInfo': 'הצג מידע מורחב על השיר',
       'settings': 'הגדרות',
       'close': 'סגור',
       'telegram': 'טלגרם',
@@ -61,6 +61,36 @@ class AppLocalizations {
       'videoStream': 'זרם וידאו',
       'nowPlaying': 'מנגן כעת',
       'buffering': 'ממתין...',
+    },
+    'fr': {
+      'languageDialogTitle': 'Sélectionner la langue',
+      'vibration': 'Vibration',
+      'adaptiveBackground': 'Fond adaptatif',
+      'coverLoading': 'Charger les pochettes',
+      'showEqualizer': 'Afficher l’égaliseur',
+      'showExtendedTrackInfo': 'Afficher les informations détaillées du titre',
+      'settings': 'Paramètres',
+      'close': 'Fermer',
+      'telegram': 'Telegram',
+      'chat': 'Chat',
+      'videoStream': 'Flux vidéo',
+      'nowPlaying': 'En cours de lecture',
+      'buffering': 'Mise en mémoire tampon...',
+    },
+    'es': {
+      'languageDialogTitle': 'Seleccionar idioma',
+      'vibration': 'Vibración',
+      'adaptiveBackground': 'Fondo adaptativo',
+      'coverLoading': 'Cargar portadas',
+      'showEqualizer': 'Mostrar ecualizador',
+      'showExtendedTrackInfo': 'Mostrar información adicional del tema',
+      'settings': 'Configuración',
+      'close': 'Cerrar',
+      'telegram': 'Telegram',
+      'chat': 'Chat',
+      'videoStream': 'Transmisión de video',
+      'nowPlaying': 'Ahora suena',
+      'buffering': 'Buffering...',
     },
   };
 
@@ -74,7 +104,7 @@ class AppLocalizations {
   String get showEqualizer =>
       _localizedValues[locale.languageCode]!['showEqualizer']!;
   String get showExtendedTrackInfo =>
-      _localizedValues[locale.languageCode]!['showExtendedTrackInfo']!; // New
+      _localizedValues[locale.languageCode]!['showExtendedTrackInfo']!;
   String get settings => _localizedValues[locale.languageCode]!['settings']!;
   String get close => _localizedValues[locale.languageCode]!['close']!;
   String get telegram => _localizedValues[locale.languageCode]!['telegram']!;
@@ -92,7 +122,7 @@ class _AppLocalizationsDelegate
 
   @override
   bool isSupported(Locale locale) =>
-      ['en', 'ru', 'he'].contains(locale.languageCode);
+      ['en', 'ru', 'es', 'fr', 'he'].contains(locale.languageCode);
 
   @override
   Future<AppLocalizations> load(Locale locale) async {
