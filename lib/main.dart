@@ -377,65 +377,73 @@ class _MyHomePageState extends State<MyHomePage>
             AppLocalizations.of(context).languageDialogTitle,
             style: const TextStyle(color: Colors.white),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'English',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('en');
-                  Navigator.pop(context);
-                },
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.7,
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'English',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('en');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇷🇺', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Русский',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('ru');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Español',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('es');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Français',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('fr');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇮🇱', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'עברית',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('he');
+                      Navigator.pop(context);
+                    },
+                  ),
+                ],
               ),
-              ListTile(
-                leading: const Text('🇷🇺', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'Русский',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('ru');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'Español',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('es');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'Français',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('fr');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Text('🇮🇱', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'עברית',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('he');
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -679,7 +687,7 @@ class _MyHomePageState extends State<MyHomePage>
                 'Initial MediaItem set: title=${initialItem.title}, artist=${initialItem.artist}, cover=${initialItem.artUri}');
             setState(() {
               _artist = initialItem.artist ?? "VTRNK";
-              _title = initialItem.title;
+              _title = item.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
                 _previousCoverUrl = _coverUrl;
                 final newCoverUrl = initialItem.artUri?.toString() ??
