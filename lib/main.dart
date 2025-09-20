@@ -334,7 +334,7 @@ class _MyHomePageState extends State<MyHomePage>
       CurvedAnimation(parent: _buttonController, curve: Curves.easeInOut),
     );
     _menuItemControllers = List.generate(
-      7, // Обновлено с 6 на 7 для Privacy Policy
+      7,
       (_) => AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 100),
@@ -1399,8 +1399,8 @@ class _MyHomePageState extends State<MyHomePage>
                                   offset: _menuOffsetAnimation.value,
                                   child: Container(
                                     width: orientation == Orientation.landscape
-                                        ? 180
-                                        : 195,
+                                        ? 210 // Увеличено с 180 на 210
+                                        : 225, // Увеличено с 195 на 225
                                     constraints: BoxConstraints(
                                       maxHeight:
                                           MediaQuery.of(context).size.height *
@@ -1445,16 +1445,16 @@ class _MyHomePageState extends State<MyHomePage>
                                         ),
                                         _buildMenuItem(
                                           4,
-                                          () => _launchURL(
-                                              'https://beasty177.github.io/vtrnk-radio/privacy_policy.html'),
-                                          AppLocalizations.of(context)
-                                              .privacyPolicy,
+                                          _showLanguageDialog,
+                                          '🇬🇧 🇷🇺 🇪🇸 🇫🇷 🇮🇱',
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           5,
-                                          () => _showLanguageDialog(),
-                                          '🇬🇧 🇷🇺 🇪🇸 🇫🇷 🇮🇱',
+                                          () => _launchURL(
+                                              'https://beasty177.github.io/vtrnk-radio/privacy_policy.html'),
+                                          AppLocalizations.of(context)
+                                              .privacyPolicy,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(

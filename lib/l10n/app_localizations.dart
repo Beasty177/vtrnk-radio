@@ -44,7 +44,7 @@ class AppLocalizations {
       'close': 'Закрыть',
       'telegram': 'Телеграм',
       'chat': 'Чат',
-      'videoStream': 'Видеопоток',
+      'videoStream': 'Видео стрим',
       'nowPlaying': 'Сейчас играет',
       'buffering': 'Буферизация...',
       'privacyPolicy': 'Политика конфиденциальности',
