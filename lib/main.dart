@@ -943,14 +943,38 @@ class _MyHomePageState extends State<MyHomePage>
     String mainTitle = _title;
     String? parenthetical;
     if (_settings.showExtendedTrackInfo) {
-      final match = RegExp(r'^(.*?)\s*\((.*?)\)$')
-          .firstMatch(_title); // New RegExp for parentheses
-      if (match != null) {
-        mainTitle = match.group(1)?.trim() ?? _title;
-        parenthetical = match.group(2);
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
+      if (firstBracketIndex > 0) {
+        mainTitle = _title.substring(0, firstBracketIndex).trim();
+        parenthetical = _title.substring(firstBracketIndex);
       }
     } else {
-      mainTitle = _title.replaceAll(RegExp(r'\s*\((.*?)\)$'), '').trim();
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
+      if (firstBracketIndex > 0) {
+        mainTitle = _title.substring(0, firstBracketIndex).trim();
+      }
     }
     final statusText = _isPlaying
         ? AppLocalizations.of(context).nowPlaying
@@ -1132,7 +1156,7 @@ class _MyHomePageState extends State<MyHomePage>
                                                       const EdgeInsets.only(
                                                           top: 4.0),
                                                   child: Text(
-                                                    '($parenthetical)',
+                                                    parenthetical,
                                                     style: const TextStyle(
                                                         color: Colors.white,
                                                         fontSize: 14),
@@ -1242,7 +1266,7 @@ class _MyHomePageState extends State<MyHomePage>
                                           padding:
                                               const EdgeInsets.only(top: 4.0),
                                           child: Text(
-                                            '($parenthetical)',
+                                            parenthetical,
                                             style: const TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 14),
@@ -1536,11 +1560,23 @@ class AudioPlayerHandler extends BaseAudioHandler
   Future<void> reloadStream() async {
     try {
       final settings = await AppSettings.loadFromPrefs();
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
       final title = settings.showExtendedTrackInfo
           ? _title
-          : _title
-              .replaceAll(RegExp(r'\s*\((.*?)\)$'), '')
-              .trim(); // New for parentheses
+          : firstBracketIndex > 0
+              ? _title.substring(0, firstBracketIndex).trim()
+              : _title;
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.parse('https://vtrnk.online/radio_stream'),
@@ -1691,11 +1727,23 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   void updateMediaMetadata({String? title, AppSettings? settings}) {
     final effectiveTitle = title ?? _title;
+    int bracketIndex = effectiveTitle.indexOf('(');
+    int squareBracketIndex = effectiveTitle.indexOf('[');
+    int firstBracketIndex = -1;
+
+    if (bracketIndex == -1 && squareBracketIndex != -1) {
+      firstBracketIndex = squareBracketIndex;
+    } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+      firstBracketIndex = bracketIndex;
+    } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+      firstBracketIndex = min(bracketIndex, squareBracketIndex);
+    }
+
     final displayTitle = settings != null && settings.showExtendedTrackInfo
         ? effectiveTitle
-        : effectiveTitle
-            .replaceAll(RegExp(r'\s*\((.*?)\)$'), '')
-            .trim(); // New for parentheses
+        : firstBracketIndex > 0
+            ? effectiveTitle.substring(0, firstBracketIndex).trim()
+            : effectiveTitle;
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
