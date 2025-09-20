@@ -9,7 +9,6 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/foundation.dart';
@@ -252,8 +251,8 @@ class _MyHomePageState extends State<MyHomePage>
   String _artist = "Waiting for artist...";
   String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
-  Uint8List?
-      _coverBytes; // New: Store image bytes for display and color extraction
+  Uint8List? _coverBytes; // Current image bytes
+  Uint8List? _previousCoverBytes; // Previous image bytes for fade
   String? _previousCoverUrl;
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
@@ -489,6 +488,7 @@ class _MyHomePageState extends State<MyHomePage>
                               }
                             } else {
                               _previousCoverUrl = _coverUrl;
+                              _previousCoverBytes = _coverBytes;
                               _coverUrl = 'assets/vt-videoplaceholder.png';
                               _coverBytes = null;
                               _isAssetCover = true;
@@ -588,8 +588,12 @@ class _MyHomePageState extends State<MyHomePage>
               _title = item.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
                 _previousCoverUrl = _coverUrl;
-                _coverUrl =
+                final newCoverUrl =
                     item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
+                if (newCoverUrl != _coverUrl) {
+                  _previousCoverBytes = _coverBytes; // Save old for fade
+                  _coverUrl = newCoverUrl;
+                }
               }
             });
             if (!_isAssetCover) {
@@ -610,8 +614,12 @@ class _MyHomePageState extends State<MyHomePage>
               _title = initialItem.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
                 _previousCoverUrl = _coverUrl;
-                _coverUrl = initialItem.artUri?.toString() ??
+                final newCoverUrl = initialItem.artUri?.toString() ??
                     'assets/vt-videoplaceholder.png';
+                if (newCoverUrl != _coverUrl) {
+                  _previousCoverBytes = _coverBytes;
+                  _coverUrl = newCoverUrl;
+                }
               }
             });
             _loadCoverBytes(); // Initial load
@@ -638,6 +646,11 @@ class _MyHomePageState extends State<MyHomePage>
   }
 
   Future<void> _loadCoverBytes() async {
+    if (_coverUrl == _previousCoverUrl) {
+      debugPrint('Cover URL unchanged, skipping reload to avoid flicker');
+      return;
+    }
+
     if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       try {
         final byteData = await rootBundle.load(_coverUrl);
@@ -729,17 +742,29 @@ class _MyHomePageState extends State<MyHomePage>
     debugPrint(
         'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover, _previousCoverUrl=$_previousCoverUrl, hasBytes=${_coverBytes != null}');
 
-    if (_coverBytes != null) {
-      return Image.memory(
-        _coverBytes!,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          debugPrint('Image.memory error: $error');
-          return Image.asset('assets/vt-videoplaceholder.png',
-              fit: BoxFit.cover);
-        },
-      );
-    } else if (_isAssetCover || _coverUrl.startsWith('assets/')) {
+    final currentCover = _coverBytes != null
+        ? Image.memory(
+            _coverBytes!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint('Image.memory error: $error');
+              return Image.asset('assets/vt-videoplaceholder.png',
+                  fit: BoxFit.cover);
+            },
+          )
+        : const SizedBox.shrink();
+
+    final previousCover = _previousCoverBytes != null
+        ? Image.memory(
+            _previousCoverBytes!,
+            fit: BoxFit.cover,
+          )
+        : Image.asset(
+            'assets/vt-videoplaceholder.png',
+            fit: BoxFit.cover,
+          );
+
+    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       return Image.asset(
         _coverUrl,
         fit: BoxFit.cover,
@@ -750,45 +775,32 @@ class _MyHomePageState extends State<MyHomePage>
         },
       );
     } else {
-      return FadeInImage(
-        placeholder: MemoryImage(Uint8List(0)), // Transparent placeholder
-        image: NetworkImage(_coverUrl),
-        fadeInDuration: const Duration(milliseconds: 300),
-        fadeOutDuration: const Duration(milliseconds: 300),
-        fit: BoxFit.cover,
-        placeholderErrorBuilder: (context, error, stackTrace) {
-          debugPrint('FadeInImage placeholder error: $error');
-          return _previousCoverUrl != null &&
-                  !_previousCoverUrl!.startsWith('assets/')
-              ? Image.network(
-                  _previousCoverUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Image.asset(
-                    'assets/vt-videoplaceholder.png',
-                    fit: BoxFit.cover,
-                  ),
-                )
-              : Image.asset(
-                  'assets/vt-videoplaceholder.png',
-                  fit: BoxFit.cover,
-                );
-        },
-        imageErrorBuilder: (context, error, stackTrace) {
-          debugPrint('FadeInImage image error: $error, url=$_coverUrl');
-          return _previousCoverUrl != null &&
-                  !_previousCoverUrl!.startsWith('assets/')
-              ? Image.network(
-                  _previousCoverUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Image.asset(
-                    'assets/vt-videoplaceholder.png',
-                    fit: BoxFit.cover,
-                  ),
-                )
-              : Image.asset(
-                  'assets/vt-videoplaceholder.png',
-                  fit: BoxFit.cover,
-                );
+      return AnimatedCrossFade(
+        firstChild: previousCover,
+        secondChild: currentCover,
+        crossFadeState: _coverBytes != null
+            ? CrossFadeState.showSecond
+            : CrossFadeState.showFirst,
+        duration: const Duration(milliseconds: 300),
+        firstCurve: Curves.easeOut,
+        secondCurve: Curves.easeIn,
+        layoutBuilder: (topChild, topChildKey, bottomChild, bottomChildKey) {
+          return Stack(
+            children: <Widget>[
+              Positioned(
+                key: bottomChildKey,
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                child: bottomChild,
+              ),
+              Positioned(
+                key: topChildKey,
+                child: topChild,
+              ),
+            ],
+          );
         },
       );
     }
