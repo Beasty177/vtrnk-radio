@@ -781,7 +781,7 @@ class _MyHomePageState extends State<MyHomePage>
         crossFadeState: _coverBytes != null
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 700),
         firstCurve: Curves.easeOut,
         secondCurve: Curves.easeIn,
         layoutBuilder: (topChild, topChildKey, bottomChild, bottomChildKey) {
