@@ -177,12 +177,14 @@ class AppSettings {
   final bool enableAdaptiveBackground;
   final bool enableCoverLoading;
   final bool showEqualizer;
+  final bool showExtendedTrackInfo; // New
 
   AppSettings({
     this.enableVibration = true,
     this.enableAdaptiveBackground = true,
     this.enableCoverLoading = true,
     this.showEqualizer = true,
+    this.showExtendedTrackInfo = true, // New
   });
 
   AppSettings copyWith({
@@ -190,6 +192,7 @@ class AppSettings {
     bool? enableAdaptiveBackground,
     bool? enableCoverLoading,
     bool? showEqualizer,
+    bool? showExtendedTrackInfo, // New
   }) {
     return AppSettings(
       enableVibration: enableVibration ?? this.enableVibration,
@@ -197,6 +200,8 @@ class AppSettings {
           enableAdaptiveBackground ?? this.enableAdaptiveBackground,
       enableCoverLoading: enableCoverLoading ?? this.enableCoverLoading,
       showEqualizer: showEqualizer ?? this.showEqualizer,
+      showExtendedTrackInfo:
+          showExtendedTrackInfo ?? this.showExtendedTrackInfo, // New
     );
   }
 
@@ -206,6 +211,7 @@ class AppSettings {
     await prefs.setBool('enableAdaptiveBackground', enableAdaptiveBackground);
     await prefs.setBool('enableCoverLoading', enableCoverLoading);
     await prefs.setBool('showEqualizer', showEqualizer);
+    await prefs.setBool('showExtendedTrackInfo', showExtendedTrackInfo); // New
   }
 
   static Future<AppSettings> loadFromPrefs() async {
@@ -216,6 +222,8 @@ class AppSettings {
           prefs.getBool('enableAdaptiveBackground') ?? true,
       enableCoverLoading: prefs.getBool('enableCoverLoading') ?? true,
       showEqualizer: prefs.getBool('showEqualizer') ?? true,
+      showExtendedTrackInfo:
+          prefs.getBool('showExtendedTrackInfo') ?? true, // New
     );
   }
 }
@@ -251,8 +259,8 @@ class _MyHomePageState extends State<MyHomePage>
   String _artist = "Waiting for artist...";
   String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
-  Uint8List? _coverBytes; // Current image bytes
-  Uint8List? _previousCoverBytes; // Previous image bytes for fade
+  Uint8List? _coverBytes;
+  Uint8List? _previousCoverBytes;
   String? _previousCoverUrl;
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
@@ -263,7 +271,7 @@ class _MyHomePageState extends State<MyHomePage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
     _randomOffsets =
         List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
     _randomMultipliers =
@@ -322,9 +330,14 @@ class _MyHomePageState extends State<MyHomePage>
       ),
     );
     _menuItemScaleAnimations = _menuItemControllers
-        .map((controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
-              CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+        .asMap()
+        .map((index, controller) => MapEntry(
+              index,
+              Tween<double>(begin: 1.0, end: 0.95).animate(
+                CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+              ),
             ))
+        .values
         .toList();
     _initAll();
   }
@@ -333,12 +346,13 @@ class _MyHomePageState extends State<MyHomePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed && _audioHandler != null) {
-      // On resume from background, refresh track info and cover
-      _audioHandler!.fetchTrackInfo();
-      if (_settings.enableCoverLoading) {
-        _audioHandler!.loadCover();
-      }
-      debugPrint('App resumed: Refreshing track info and cover');
+      Future.delayed(const Duration(milliseconds: 200), () {
+        _audioHandler!.fetchTrackInfo();
+        if (_settings.enableCoverLoading) {
+          _audioHandler!.loadCover();
+        }
+        debugPrint('App resumed: Refreshing track info and cover');
+      });
     }
   }
 
@@ -460,7 +474,7 @@ class _MyHomePageState extends State<MyHomePage>
                                 ),
                               );
                             } else if (!_isAssetCover) {
-                              _loadCoverBytes(); // Reload bytes and update color
+                              _loadCoverBytes();
                             }
                           });
                           _settings.saveToPrefs();
@@ -484,7 +498,7 @@ class _MyHomePageState extends State<MyHomePage>
                             if (value && _audioHandler != null) {
                               _audioHandler!.loadCover();
                               if (_settings.enableAdaptiveBackground) {
-                                _loadCoverBytes(); // Load bytes and update
+                                _loadCoverBytes();
                               }
                             } else {
                               _previousCoverUrl = _coverUrl;
@@ -526,6 +540,24 @@ class _MyHomePageState extends State<MyHomePage>
                           debugPrint('Show equalizer setting changed: $value');
                         },
                       ),
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).showExtendedTrackInfo,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.showExtendedTrackInfo,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              showExtendedTrackInfo: value,
+                            );
+                          });
+                          setState(() {});
+                          _settings.saveToPrefs();
+                          debugPrint(
+                              'Show extended track info setting changed: $value');
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -551,11 +583,11 @@ class _MyHomePageState extends State<MyHomePage>
     try {
       _settings = await AppSettings.loadFromPrefs();
       debugPrint(
-          'Settings loaded: enableCoverLoading=${_settings.enableCoverLoading}, enableAdaptiveBackground=${_settings.enableAdaptiveBackground}');
+          'Settings loaded: enableCoverLoading=${_settings.enableCoverLoading}, enableAdaptiveBackground=${_settings.enableAdaptiveBackground}, showExtendedTrackInfo=${_settings.showExtendedTrackInfo}');
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
-        await _loadCoverBytes(); // Load asset bytes initially
+        await _loadCoverBytes();
       }
       _audioHandler = globalAudioHandler as AudioPlayerHandler?;
       if (_audioHandler == null) {
@@ -591,13 +623,13 @@ class _MyHomePageState extends State<MyHomePage>
                 final newCoverUrl =
                     item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
                 if (newCoverUrl != _coverUrl) {
-                  _previousCoverBytes = _coverBytes; // Save old for fade
+                  _previousCoverBytes = _coverBytes;
                   _coverUrl = newCoverUrl;
                 }
               }
             });
             if (!_isAssetCover) {
-              _loadCoverBytes(); // Load bytes for display and background
+              _loadCoverBytes();
             }
           }
         });
@@ -622,7 +654,7 @@ class _MyHomePageState extends State<MyHomePage>
                 }
               }
             });
-            _loadCoverBytes(); // Initial load
+            _loadCoverBytes();
           }
         }
       } catch (e) {
@@ -697,7 +729,7 @@ class _MyHomePageState extends State<MyHomePage>
       debugPrint("Error loading cover bytes: $e");
       await Future.delayed(const Duration(seconds: 5));
       if (mounted) {
-        _loadCoverBytes(); // Retry
+        _loadCoverBytes();
       }
     }
   }
@@ -781,9 +813,9 @@ class _MyHomePageState extends State<MyHomePage>
         crossFadeState: _coverBytes != null
             ? CrossFadeState.showSecond
             : CrossFadeState.showFirst,
-        duration: const Duration(milliseconds: 700),
-        firstCurve: Curves.easeOut,
-        secondCurve: Curves.easeIn,
+        duration: const Duration(milliseconds: 600),
+        firstCurve: Curves.easeInOut,
+        secondCurve: Curves.easeInOut,
         layoutBuilder: (topChild, topChildKey, bottomChild, bottomChildKey) {
           return Stack(
             children: <Widget>[
@@ -834,7 +866,7 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this); // Remove observer
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _colorController.dispose();
     _menuController.dispose();
@@ -1087,7 +1119,9 @@ class _MyHomePageState extends State<MyHomePage>
                                                   textAlign: TextAlign.left,
                                                 ),
                                               ),
-                                              if (parenthetical != null)
+                                              if (parenthetical != null &&
+                                                  _settings
+                                                      .showExtendedTrackInfo)
                                                 Text(
                                                   '($parenthetical)',
                                                   style: const TextStyle(
@@ -1192,7 +1226,8 @@ class _MyHomePageState extends State<MyHomePage>
                                             color: Colors.white, fontSize: 16),
                                         textAlign: TextAlign.center,
                                       ),
-                                      if (parenthetical != null)
+                                      if (parenthetical != null &&
+                                          _settings.showExtendedTrackInfo)
                                         Text(
                                           '($parenthetical)',
                                           style: const TextStyle(
@@ -1486,13 +1521,16 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> reloadStream() async {
     try {
+      final settings = await AppSettings.loadFromPrefs();
+      final title =
+          settings.showExtendedTrackInfo ? _title : _title.split(r' $$ ')[0];
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.parse('https://vtrnk.online/radio_stream'),
           tag: MediaItem(
             id: '1',
             album: 'VTRNK Radio',
-            title: _title,
+            title: title,
             artist: _artist,
             artUri: Uri.parse(_coverUrl),
             duration: null,
@@ -1500,7 +1538,7 @@ class AudioPlayerHandler extends BaseAudioHandler
         ),
       );
       debugPrint(
-          "Stream source reloaded with title=$_title, artist=$_artist, cover=$_coverUrl");
+          "Stream source reloaded with title=$title, artist=$_artist, cover=$_coverUrl");
       _retryCount = 0;
     } catch (e) {
       debugPrint("Stream reload error: $e");
@@ -1540,12 +1578,12 @@ class AudioPlayerHandler extends BaseAudioHandler
         _retryCount = 0;
         _fetchTrackInfo();
       });
-      _socket!.on('track_update', (data) {
+      _socket!.on('track_update', (data) async {
         debugPrint("Received track_update: $data");
         if (data is Map && !isVideoStreamActive(data)) {
           _artist = data['artist']?.toString() ?? _artist;
           _title = data['title']?.toString() ?? _title;
-          _fetchCoverUrl();
+          await _fetchCoverUrl();
           _updateMediaMetadata();
         }
       });
@@ -1631,18 +1669,23 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
-  void _updateMediaMetadata({String? title}) {
+  void _updateMediaMetadata({String? title}) async {
+    final settings = await AppSettings.loadFromPrefs();
+    final effectiveTitle = title ?? _title;
+    final displayTitle = settings.showExtendedTrackInfo
+        ? effectiveTitle
+        : effectiveTitle.split(r' $$ ')[0];
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
-      title: title ?? _title,
+      title: displayTitle,
       artist: _artist,
       artUri: Uri.parse(_coverUrl),
       duration: null,
     );
     debugPrint(
         "Updating MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}");
-    mediaItem.add(newItem); // Emit to stream for UI update
+    mediaItem.add(newItem);
   }
 
   @override

@@ -23,6 +23,7 @@ class AppLocalizations {
       'adaptiveBackground': 'Adaptive Background',
       'coverLoading': 'Load Cover Art',
       'showEqualizer': 'Show Equalizer',
+      'showExtendedTrackInfo': 'Show Extended Track Info', // New
       'settings': 'Settings',
       'close': 'Close',
       'telegram': 'Telegram',
@@ -37,6 +38,7 @@ class AppLocalizations {
       'adaptiveBackground': 'Адаптивный фон',
       'coverLoading': 'Загружать обложки',
       'showEqualizer': 'Показывать эквалайзер',
+      'showExtendedTrackInfo': 'Показывать доп. информацию о треке', // New
       'settings': 'Настройки',
       'close': 'Закрыть',
       'telegram': 'Телеграм',
@@ -51,6 +53,7 @@ class AppLocalizations {
       'adaptiveBackground': 'רקע דינמי',
       'coverLoading': 'טען תמונת כריכה',
       'showEqualizer': 'הצג אקולייזר',
+      'showExtendedTrackInfo': 'הצג מידע מורחב על השיר', // New
       'settings': 'הגדרות',
       'close': 'סגור',
       'telegram': 'טלגרם',
@@ -70,6 +73,8 @@ class AppLocalizations {
       _localizedValues[locale.languageCode]!['coverLoading']!;
   String get showEqualizer =>
       _localizedValues[locale.languageCode]!['showEqualizer']!;
+  String get showExtendedTrackInfo =>
+      _localizedValues[locale.languageCode]!['showExtendedTrackInfo']!; // New
   String get settings => _localizedValues[locale.languageCode]!['settings']!;
   String get close => _localizedValues[locale.languageCode]!['close']!;
   String get telegram => _localizedValues[locale.languageCode]!['telegram']!;
