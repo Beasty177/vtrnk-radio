@@ -35,3 +35,5 @@ flutter_*.log
 
 # Запуст локального и серверного окна vs
 launch_radio.bat
+
+android/key.properties

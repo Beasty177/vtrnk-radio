@@ -1,19 +1,85 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:just_audio_background/just_audio_background.dart';
-import 'package:audio_service/audio_service.dart';
 import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:palette_generator/palette_generator.dart';
-import 'package:flutter/services.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:image/image.dart' as img;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/foundation.dart';
 import 'l10n/app_localizations.dart';
+
+AudioHandler? globalAudioHandler;
+
+// Top-level function to extract dominant color with preference for vibrant colors
+Color? extractDominantColor(Uint8List imageBytes) {
+  try {
+    debugPrint(
+        'Extracting dominant color from image bytes, length=${imageBytes.length}');
+    final image = img.decodeImage(imageBytes);
+    if (image == null) {
+      debugPrint('Failed to decode image for color extraction');
+      return null;
+    }
+    final pixels = image.getBytes();
+    debugPrint(
+        'Image decoded: width=${image.width}, height=${image.height}, pixels=${pixels.length}');
+    // Convert RGB to HSV and track vibrant colors
+    Map<int, int> colorCounts = {};
+    Map<int, double> saturationMap = {};
+    for (int i = 0; i < pixels.length; i += 4) {
+      int r = pixels[i];
+      int g = pixels[i + 1];
+      int b = pixels[i + 2];
+      // Convert RGB to HSV
+      double rNorm = r / 255.0;
+      double gNorm = g / 255.0;
+      double bNorm = b / 255.0;
+      double max = [rNorm, gNorm, bNorm].reduce((a, b) => a > b ? a : b);
+      double min = [rNorm, gNorm, bNorm].reduce((a, b) => a < b ? a : b);
+      double saturation = max == 0 ? 0 : (max - min) / max;
+      // Only consider colors with sufficient saturation to avoid grey
+      if (saturation > 0.3) {
+        int color = (r << 16) | (g << 8) | b;
+        colorCounts[color] = (colorCounts[color] ?? 0) + 1;
+        saturationMap[color] = saturation;
+      }
+    }
+    if (colorCounts.isEmpty) {
+      debugPrint('No vibrant pixels found for color extraction');
+      return null;
+    }
+    // Find the most frequent vibrant color
+    int maxCount = 0;
+    int dominantColorInt = 0;
+    double maxSaturation = 0;
+    colorCounts.forEach((color, count) {
+      double saturation = saturationMap[color] ?? 0;
+      // Prioritize colors with higher saturation and sufficient frequency
+      if (count > maxCount ||
+          (count == maxCount && saturation > maxSaturation)) {
+        maxCount = count;
+        dominantColorInt = color;
+        maxSaturation = saturation;
+      }
+    });
+    final dominantR = (dominantColorInt >> 16) & 0xFF;
+    final dominantG = (dominantColorInt >> 8) & 0xFF;
+    final dominantB = dominantColorInt & 0xFF;
+    final result = Color.fromRGBO(dominantR, dominantG, dominantB, 1.0);
+    debugPrint(
+        'Dominant color extracted: R=$dominantR G=$dominantG B=$dominantB, saturation=$maxSaturation');
+    return result;
+  } catch (e) {
+    debugPrint("Error in color extraction: $e");
+    return null;
+  }
+}
 
 Future<void> main() async {
   runZonedGuarded(
@@ -25,24 +91,23 @@ Future<void> main() async {
         DeviceOrientation.landscapeRight,
       ]);
       try {
-        await JustAudioBackground.init(
-          androidNotificationChannelId:
-              'com.example.radio_app_new.channel.audio',
-          androidNotificationChannelName: 'VTRNK Radio Playback',
-          androidNotificationChannelDescription:
-              'VTRNK Radio audio playback controls',
-          androidNotificationOngoing: true,
-          androidNotificationIcon: 'mipmap/ic_launcher',
-          androidStopForegroundOnPause: true,
+        globalAudioHandler = await AudioService.init(
+          builder: () => AudioPlayerHandler(),
+          config: const AudioServiceConfig(
+            androidNotificationChannelId: 'com.vtrnk.radio.channel.audio',
+            androidNotificationChannelName: 'VTRNK Radio Playback',
+            androidNotificationOngoing: true,
+            androidStopForegroundOnPause: true,
+          ),
         );
-        print('JustAudioBackground init success');
+        debugPrint('AudioService init success');
       } catch (e) {
-        print('JustAudioBackground init error: $e');
+        debugPrint('Audio initialization error: $e');
       }
       runApp(const MyApp());
     },
     (error, stackTrace) {
-      print('Unhandled error in main: $error');
+      debugPrint('Unhandled error in main: $error');
     },
   );
 }
@@ -55,7 +120,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final _localeNotifier = ValueNotifier<Locale>(const Locale('ru'));
+  final _localeNotifier = ValueNotifier<Locale>(const Locale('en'));
 
   @override
   void initState() {
@@ -65,8 +130,18 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
-    final locale = prefs.getString('locale') ?? 'ru';
-    _localeNotifier.value = Locale(locale);
+    final savedLocale = prefs.getString('locale');
+    if (savedLocale == null) {
+      // First app launch: check device locale
+      final deviceLocale = PlatformDispatcher.instance.locale.languageCode;
+      final supportedLocales = ['en', 'ru', 'es', 'fr', 'he'];
+      final defaultLocale =
+          supportedLocales.contains(deviceLocale) ? deviceLocale : 'en';
+      await prefs.setString('locale', defaultLocale);
+      _localeNotifier.value = Locale(defaultLocale);
+    } else {
+      _localeNotifier.value = Locale(savedLocale);
+    }
   }
 
   Future<void> _setLocale(String locale) async {
@@ -89,7 +164,7 @@ class _MyAppState extends State<MyApp> {
         return MaterialApp(
           title: 'VTRNK Radio',
           locale: locale,
-          localizationsDelegates: const [
+          localizationsDelegates: [
             AppLocalizations.delegate,
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -98,6 +173,8 @@ class _MyAppState extends State<MyApp> {
           supportedLocales: const [
             Locale('en', ''),
             Locale('ru', ''),
+            Locale('es', ''),
+            Locale('fr', ''),
             Locale('he', ''),
           ],
           home: MyHomePage(onLocaleChange: _setLocale),
@@ -107,18 +184,19 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-// Модель для настроек приложения
 class AppSettings {
   final bool enableVibration;
   final bool enableAdaptiveBackground;
   final bool enableCoverLoading;
   final bool showEqualizer;
+  final bool showExtendedTrackInfo;
 
   AppSettings({
     this.enableVibration = true,
     this.enableAdaptiveBackground = true,
     this.enableCoverLoading = true,
     this.showEqualizer = true,
+    this.showExtendedTrackInfo = true,
   });
 
   AppSettings copyWith({
@@ -126,6 +204,7 @@ class AppSettings {
     bool? enableAdaptiveBackground,
     bool? enableCoverLoading,
     bool? showEqualizer,
+    bool? showExtendedTrackInfo,
   }) {
     return AppSettings(
       enableVibration: enableVibration ?? this.enableVibration,
@@ -133,19 +212,20 @@ class AppSettings {
           enableAdaptiveBackground ?? this.enableAdaptiveBackground,
       enableCoverLoading: enableCoverLoading ?? this.enableCoverLoading,
       showEqualizer: showEqualizer ?? this.showEqualizer,
+      showExtendedTrackInfo:
+          showExtendedTrackInfo ?? this.showExtendedTrackInfo,
     );
   }
 
-  // Сохранение настроек
   Future<void> saveToPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('enableVibration', enableVibration);
     await prefs.setBool('enableAdaptiveBackground', enableAdaptiveBackground);
     await prefs.setBool('enableCoverLoading', enableCoverLoading);
     await prefs.setBool('showEqualizer', showEqualizer);
+    await prefs.setBool('showExtendedTrackInfo', showExtendedTrackInfo);
   }
 
-  // Загрузка настроек
   static Future<AppSettings> loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     return AppSettings(
@@ -154,20 +234,21 @@ class AppSettings {
           prefs.getBool('enableAdaptiveBackground') ?? true,
       enableCoverLoading: prefs.getBool('enableCoverLoading') ?? true,
       showEqualizer: prefs.getBool('showEqualizer') ?? true,
+      showExtendedTrackInfo: prefs.getBool('showExtendedTrackInfo') ?? true,
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
   final void Function(String) onLocaleChange;
-
   const MyHomePage({super.key, required this.onLocaleChange});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+class _MyHomePageState extends State<MyHomePage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _isMenuOpen = false;
   late AnimationController _controller;
   late AnimationController _colorController;
@@ -186,9 +267,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   final int barCount = 14;
   AudioPlayerHandler? _audioHandler;
   bool _isPlaying = false;
-  String _artist = "Ожидание исполнителя...";
-  String _title = "Ожидание трека...";
+  String _artist = "Waiting for artist...";
+  String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
+  Uint8List? _coverBytes;
+  Uint8List? _previousCoverBytes;
+  String? _previousCoverUrl;
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
   bool _isLoading = true;
@@ -198,49 +282,37 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _randomOffsets = List.generate(
-      barCount,
-      (_) => _random.nextDouble() * pi * 2,
-    );
-    _randomMultipliers = List.generate(
-      barCount,
-      (_) => _random.nextDouble() * 0.8 + 0.2,
-    );
-    _randomSpeeds = List.generate(
-      barCount,
-      (_) => 0.8 + _random.nextDouble() * 0.7,
-    );
-    _controller =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 1500),
-        )..addStatusListener((status) {
-          if (status == AnimationStatus.completed ||
-              status == AnimationStatus.dismissed) {
-            setState(() {
-              _randomOffsets = List.generate(
-                barCount,
-                (_) => _random.nextDouble() * pi * 2,
-              );
-              _randomMultipliers = List.generate(
-                barCount,
-                (_) => _random.nextDouble() * 0.8 + 0.2,
-              );
-              _randomSpeeds = List.generate(
-                barCount,
-                (_) => 0.8 + _random.nextDouble() * 0.7,
-              );
-            });
-          }
-        });
+    WidgetsBinding.instance.addObserver(this);
+    _randomOffsets =
+        List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
+    _randomMultipliers =
+        List.generate(barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
+    _randomSpeeds =
+        List.generate(barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..addStatusListener((status) {
+        if (status == AnimationStatus.completed ||
+            status == AnimationStatus.dismissed) {
+          setState(() {
+            _randomOffsets =
+                List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
+            _randomMultipliers = List.generate(
+                barCount, (_) => _random.nextDouble() * 0.8 + 0.2);
+            _randomSpeeds = List.generate(
+                barCount, (_) => 0.8 + _random.nextDouble() * 0.7);
+          });
+        }
+      });
     _colorController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-    _colorAnimation = ColorTween(begin: _backgroundColor, end: _backgroundColor)
-        .animate(
-          CurvedAnimation(parent: _colorController, curve: Curves.easeInOut),
-        );
+    _colorAnimation =
+        ColorTween(begin: _backgroundColor, end: _backgroundColor).animate(
+      CurvedAnimation(parent: _colorController, curve: Curves.easeInOut),
+    );
     _menuController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -248,13 +320,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     _menuOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
     );
-    _menuOffsetAnimation =
-        Tween<Offset>(
-          begin: const Offset(-0.2, 0.0),
-          end: const Offset(0.0, 0.0),
-        ).animate(
-          CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
-        );
+    _menuOffsetAnimation = Tween<Offset>(
+      begin: const Offset(-0.2, 0.0),
+      end: const Offset(0.0, 0.0),
+    ).animate(
+      CurvedAnimation(parent: _menuController, curve: Curves.easeInOut),
+    );
     _buttonController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 100),
@@ -270,13 +341,30 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       ),
     );
     _menuItemScaleAnimations = _menuItemControllers
-        .map(
-          (controller) => Tween<double>(begin: 1.0, end: 0.95).animate(
-            CurvedAnimation(parent: controller, curve: Curves.easeInOut),
-          ),
-        )
+        .asMap()
+        .map((index, controller) => MapEntry(
+              index,
+              Tween<double>(begin: 1.0, end: 0.95).animate(
+                CurvedAnimation(parent: controller, curve: Curves.easeInOut),
+              ),
+            ))
+        .values
         .toList();
     _initAll();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && _audioHandler != null) {
+      Future.delayed(const Duration(milliseconds: 200), () {
+        _audioHandler!.fetchTrackInfo();
+        if (_settings.enableCoverLoading) {
+          _audioHandler!.loadCover();
+        }
+        debugPrint('App resumed: Refreshing track info and cover');
+      });
+    }
   }
 
   Future<void> _showLanguageDialog() async {
@@ -289,43 +377,73 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             AppLocalizations.of(context).languageDialogTitle,
             style: const TextStyle(color: Colors.white),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'English',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('en');
-                  Navigator.pop(context);
-                },
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.7,
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'English',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('en');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇷🇺', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Русский',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('ru');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇪🇸', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Español',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('es');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇫🇷', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'Français',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('fr');
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Text('🇮🇱', style: TextStyle(fontSize: 24)),
+                    title: const Text(
+                      'עברית',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    onTap: () {
+                      widget.onLocaleChange('he');
+                      Navigator.pop(context);
+                    },
+                  ),
+                ],
               ),
-              ListTile(
-                leading: const Text('🇷🇺', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'Русский',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('ru');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Text('🇮🇱', style: TextStyle(fontSize: 24)),
-                title: const Text(
-                  'עברית',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  widget.onLocaleChange('he');
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -367,6 +485,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {});
                           _settings.saveToPrefs();
+                          debugPrint('Vibration setting changed: $value');
                         },
                       ),
                       SwitchListTile(
@@ -382,20 +501,21 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             );
                           });
                           setState(() {
+                            debugPrint(
+                                'Adaptive background setting changed: $value');
                             if (!value) {
                               _backgroundColor = Colors.black;
-                              _colorAnimation =
-                                  ColorTween(
-                                    begin: _backgroundColor,
-                                    end: _backgroundColor,
-                                  ).animate(
-                                    CurvedAnimation(
-                                      parent: _colorController,
-                                      curve: Curves.easeInOut,
-                                    ),
-                                  );
-                            } else {
-                              _updateBackgroundColor();
+                              _colorAnimation = ColorTween(
+                                begin: _backgroundColor,
+                                end: _backgroundColor,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: _colorController,
+                                  curve: Curves.easeInOut,
+                                ),
+                              );
+                            } else if (!_isAssetCover) {
+                              _loadCoverBytes();
                             }
                           });
                           _settings.saveToPrefs();
@@ -414,20 +534,34 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             );
                           });
                           setState(() {
+                            debugPrint('Cover loading setting changed: $value');
                             _isAssetCover = !value;
-                            if (value) {
-                              _audioHandler?.loadCover();
+                            if (value && _audioHandler != null) {
+                              _audioHandler!.loadCover();
                               if (_settings.enableAdaptiveBackground) {
-                                _updateBackgroundColor();
+                                _loadCoverBytes();
                               }
                             } else {
+                              _previousCoverUrl = _coverUrl;
+                              _previousCoverBytes = _coverBytes;
                               _coverUrl = 'assets/vt-videoplaceholder.png';
+                              _coverBytes = null;
+                              _isAssetCover = true;
+                              _backgroundColor = Colors.black;
+                              _colorAnimation = ColorTween(
+                                begin: _backgroundColor,
+                                end: _backgroundColor,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: _colorController,
+                                  curve: Curves.easeInOut,
+                                ),
+                              );
                             }
                           });
                           await _settings.saveToPrefs();
                           await Future.delayed(
-                            const Duration(milliseconds: 500),
-                          );
+                              const Duration(milliseconds: 500));
                         },
                       ),
                       SwitchListTile(
@@ -444,6 +578,28 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           });
                           setState(() {});
                           _settings.saveToPrefs();
+                          debugPrint('Show equalizer setting changed: $value');
+                        },
+                      ),
+                      SwitchListTile(
+                        title: Text(
+                          AppLocalizations.of(context).showExtendedTrackInfo,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        value: _settings.showExtendedTrackInfo,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _settings = _settings.copyWith(
+                              showExtendedTrackInfo: value,
+                            );
+                          });
+                          setState(() {
+                            debugPrint(
+                                'Show extended track info setting changed: $value');
+                          });
+                          _settings.saveToPrefs();
+                          _audioHandler?.updateMediaMetadata(
+                              settings: _settings, title: _title);
                         },
                       ),
                     ],
@@ -467,18 +623,24 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _initAll() async {
-    print('InitAll start');
+    debugPrint('InitAll start');
     try {
       _settings = await AppSettings.loadFromPrefs();
+      debugPrint(
+          'Settings loaded: enableCoverLoading=${_settings.enableCoverLoading}, enableAdaptiveBackground=${_settings.enableAdaptiveBackground}, showExtendedTrackInfo=${_settings.showExtendedTrackInfo}');
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
-      } else {
-        print('Init: Loading cover');
-        _audioHandler?.loadCover();
+        await _loadCoverBytes();
       }
-      await _initAudioPlayer();
-      print('AudioHandler init success');
+      _audioHandler = globalAudioHandler as AudioPlayerHandler?;
+      if (_audioHandler == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Audio initialization failed';
+        });
+        return;
+      }
       _audioHandler!.playbackState.listen((playbackState) {
         if (mounted) {
           setState(() {
@@ -495,106 +657,227 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       try {
         _audioHandler!.mediaItem.listen((MediaItem? item) {
           if (mounted && item != null) {
+            debugPrint(
+                'MediaItem received in UI: title=${item.title}, artist=${item.artist}, cover=${item.artUri}');
             setState(() {
               _artist = item.artist ?? "VTRNK";
               _title = item.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
-                _coverUrl =
+                _previousCoverUrl = _coverUrl;
+                final newCoverUrl =
                     item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
+                if (newCoverUrl != _coverUrl) {
+                  _previousCoverBytes = _coverBytes;
+                  _coverUrl = newCoverUrl;
+                }
               }
             });
-            if (_settings.enableAdaptiveBackground && !_isAssetCover) {
-              _updateBackgroundColor();
+            if (!_isAssetCover) {
+              _loadCoverBytes();
             }
           }
         });
+        // Force initial fetch of track info and cover
+        if (_settings.enableCoverLoading && !_isAssetCover) {
+          _audioHandler!.loadCover();
+          await _audioHandler!.fetchTrackInfo();
+          final initialItem = _audioHandler!.mediaItem.value;
+          if (mounted && initialItem != null) {
+            debugPrint(
+                'Initial MediaItem set: title=${initialItem.title}, artist=${initialItem.artist}, cover=${initialItem.artUri}');
+            setState(() {
+              _artist = initialItem.artist ?? "VTRNK";
+              _title = initialItem.title;
+              if (_settings.enableCoverLoading && !_isAssetCover) {
+                _previousCoverUrl = _coverUrl;
+                final newCoverUrl = initialItem.artUri?.toString() ??
+                    'assets/vt-videoplaceholder.png';
+                if (newCoverUrl != _coverUrl) {
+                  _previousCoverBytes = _coverBytes;
+                  _coverUrl = newCoverUrl;
+                }
+              }
+            });
+            _loadCoverBytes();
+          }
+        }
       } catch (e) {
-        print('MediaItem listen error: $e');
+        debugPrint('MediaItem listen error: $e');
       }
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
       }
-      print('InitAll success');
+      debugPrint('InitAll success');
     } catch (e) {
-      print('InitAll error: $e');
+      debugPrint('InitAll error: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = 'Ошибка инициализации: $e';
+          _errorMessage = 'Initialization error: $e';
         });
       }
     }
   }
 
-  Future<void> _initAudioPlayer() async {
-    try {
-      print('InitAudioPlayer start');
-      _audioHandler = AudioPlayerHandler();
-      print('AudioPlayerHandler created');
-    } catch (e) {
-      print('AudioPlayerHandler init error: $e');
-      rethrow;
-    }
-  }
-
-  Future<void> _updateBackgroundColor() async {
-    if (!_settings.enableAdaptiveBackground ||
-        _isAssetCover ||
-        _coverUrl.startsWith('assets/') ||
-        _coverUrl.startsWith('file://')) {
-      print('UpdateBG skipped: asset or disabled');
+  Future<void> _loadCoverBytes() async {
+    if (_coverUrl == _previousCoverUrl) {
+      debugPrint('Cover URL unchanged, skipping reload to avoid flicker');
       return;
     }
+
+    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
+      try {
+        final byteData = await rootBundle.load(_coverUrl);
+        final bytes = byteData.buffer.asUint8List();
+        if (mounted) {
+          setState(() {
+            _coverBytes = bytes;
+          });
+        }
+        if (_settings.enableAdaptiveBackground) {
+          _updateBackgroundColor(bytes);
+        }
+      } catch (e) {
+        debugPrint('Asset load error: $e');
+      }
+      return;
+    }
+
+    if (!_settings.enableAdaptiveBackground && !_settings.enableCoverLoading) {
+      debugPrint('Load bytes skipped: Settings disabled');
+      return;
+    }
+
     try {
-      print('UpdateBG: Loading palette for $_coverUrl');
-      final PaletteGenerator palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(_coverUrl),
-        maximumColorCount: 10,
-      );
+      debugPrint('Loading cover bytes from $_coverUrl');
+      final response = await http
+          .get(Uri.parse(_coverUrl))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        debugPrint(
+            'Failed to load image bytes: ${response.statusCode}, body=${response.body}');
+        return;
+      }
+      final bytes = response.bodyBytes;
       if (mounted) {
-        final newColor = palette.dominantColor?.color ?? Colors.black;
-        final luminance = newColor.computeLuminance();
-        final targetColor = Color.fromRGBO(
-          newColor.red,
-          newColor.green,
-          newColor.blue,
-          0.5,
-        ).withOpacity(luminance > 0.5 ? 0.8 : 1.0);
         setState(() {
-          _colorAnimation =
-              ColorTween(begin: _backgroundColor, end: targetColor).animate(
-                CurvedAnimation(
-                  parent: _colorController,
-                  curve: Curves.easeInOut,
-                ),
-              );
+          _coverBytes = bytes;
+        });
+      }
+      if (_settings.enableAdaptiveBackground) {
+        _updateBackgroundColor(bytes);
+      }
+    } catch (e) {
+      debugPrint("Error loading cover bytes: $e");
+      await Future.delayed(const Duration(seconds: 5));
+      if (mounted) {
+        _loadCoverBytes();
+      }
+    }
+  }
+
+  Future<void> _updateBackgroundColor(Uint8List bytes) async {
+    try {
+      final dominantColor = await compute(extractDominantColor, bytes);
+      if (dominantColor == null) {
+        debugPrint('Failed to extract dominant color');
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          final luminance = dominantColor.computeLuminance();
+          final targetColor = Color.fromRGBO(
+            (dominantColor.r * 255.0).round() & 0xFF,
+            (dominantColor.g * 255.0).round() & 0xFF,
+            (dominantColor.b * 255.0).round() & 0xFF,
+            luminance > 0.5 ? 0.8 : 1.0,
+          );
+          debugPrint(
+              'Setting background color: $targetColor, luminance=$luminance');
+          _colorAnimation = ColorTween(
+            begin: _backgroundColor,
+            end: targetColor,
+          ).animate(
+            CurvedAnimation(
+              parent: _colorController,
+              curve: Curves.easeInOut,
+            ),
+          );
           _backgroundColor = targetColor;
         });
         _colorController.forward(from: 0.0);
       }
     } catch (e) {
-      print("Ошибка при извлечении цвета: $e");
-      await Future.delayed(const Duration(seconds: 5));
-      await _updateBackgroundColor();
+      debugPrint("Error updating background: $e");
     }
   }
 
   Widget _buildCoverWidget() {
-    if (_isAssetCover) {
+    debugPrint(
+        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover, _previousCoverUrl=$_previousCoverUrl, hasBytes=${_coverBytes != null}');
+
+    final currentCover = _coverBytes != null
+        ? Image.memory(
+            _coverBytes!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              debugPrint('Image.memory error: $error');
+              return Image.asset('assets/vt-videoplaceholder.png',
+                  fit: BoxFit.cover);
+            },
+          )
+        : const SizedBox.shrink();
+
+    final previousCover = _previousCoverBytes != null
+        ? Image.memory(
+            _previousCoverBytes!,
+            fit: BoxFit.cover,
+          )
+        : Image.asset(
+            'assets/vt-videoplaceholder.png',
+            fit: BoxFit.cover,
+          );
+
+    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       return Image.asset(
         _coverUrl,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) =>
-            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('Image.asset error: $error');
+          return Image.asset('assets/vt-videoplaceholder.png',
+              fit: BoxFit.cover);
+        },
       );
     } else {
-      return CachedNetworkImage(
-        imageUrl: _coverUrl,
-        fit: BoxFit.cover,
-        errorWidget: (context, url, error) =>
-            Image.asset('assets/vt-videoplaceholder.png', fit: BoxFit.cover),
+      return AnimatedCrossFade(
+        firstChild: previousCover,
+        secondChild: currentCover,
+        crossFadeState: _coverBytes != null
+            ? CrossFadeState.showSecond
+            : CrossFadeState.showFirst,
+        duration: const Duration(milliseconds: 600),
+        firstCurve: Curves.easeInOut,
+        secondCurve: Curves.easeInOut,
+        layoutBuilder: (topChild, topChildKey, bottomChild, bottomChildKey) {
+          return Stack(
+            children: <Widget>[
+              Positioned(
+                key: bottomChildKey,
+                left: 0.0,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+                child: bottomChild,
+              ),
+              Positioned(
+                key: topChildKey,
+                child: topChild,
+              ),
+            ],
+          );
+        },
       );
     }
   }
@@ -605,18 +888,29 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         HapticFeedback.lightImpact();
       }
       _buttonController.forward().then((_) => _buttonController.reverse());
+      if (_audioHandler == null) {
+        debugPrint('Audio handler not initialized');
+        setState(() {
+          _errorMessage = 'Audio handler not initialized';
+        });
+        return;
+      }
       if (_isPlaying) {
-        await _audioHandler?.pause();
+        await _audioHandler!.pause();
       } else {
-        await _audioHandler?.play();
+        await _audioHandler!.play();
       }
     } catch (e) {
-      print("Ошибка при переключении: $e");
+      debugPrint("Playback error: $e");
+      setState(() {
+        _errorMessage = 'Playback error: $e';
+      });
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _colorController.dispose();
     _menuController.dispose();
@@ -643,7 +937,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _launchURL(String url) async {
-    final Uri uri = Uri.parse(url);
+    final uri = Uri.parse(url);
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(
@@ -653,10 +947,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               : LaunchMode.platformDefault,
         );
       } else {
-        print("Не удалось открыть URL: $url - приложение не найдено");
+        debugPrint("Could not launch URL: $url - app not found");
       }
     } catch (e) {
-      print("Ошибка при открытии URL: $url - $e");
+      debugPrint("Error launching URL: $url - $e");
     }
   }
 
@@ -690,10 +984,39 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
     String mainTitle = _title;
     String? parenthetical;
-    final match = RegExp(r'^(.*?)(?:\s*\((.*?)\))?$').firstMatch(_title);
-    if (match != null) {
-      mainTitle = match.group(1)?.trim() ?? _title;
-      parenthetical = match.group(2);
+    if (_settings.showExtendedTrackInfo) {
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
+      if (firstBracketIndex > 0) {
+        mainTitle = _title.substring(0, firstBracketIndex).trim();
+        parenthetical = _title.substring(firstBracketIndex);
+      }
+    } else {
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
+      if (firstBracketIndex > 0) {
+        mainTitle = _title.substring(0, firstBracketIndex).trim();
+      }
     }
     final statusText = _isPlaying
         ? AppLocalizations.of(context).nowPlaying
@@ -706,9 +1029,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         SystemChrome.setSystemUIOverlayStyle(
           SystemUiOverlayStyle(
             statusBarColor: currentColor,
-            statusBarBrightness: luminance < 0.5
-                ? Brightness.light
-                : Brightness.dark,
+            statusBarBrightness:
+                luminance < 0.5 ? Brightness.light : Brightness.dark,
           ),
         );
         return Scaffold(
@@ -718,8 +1040,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             children: [
               OrientationBuilder(
                 builder: (context, orientation) {
-                  final screenHeight = MediaQuery.of(context).size.height;
-                  const coverSize = 320.0;
                   return Stack(
                     children: [
                       if (orientation == Orientation.landscape)
@@ -777,14 +1097,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                               height: 52.5,
                                               child: ElevatedButton(
                                                 style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(
-                                                    0xFF808080,
-                                                  ),
+                                                  backgroundColor:
+                                                      const Color(0xFF808080),
                                                   shape:
                                                       const RoundedRectangleBorder(
-                                                        borderRadius:
-                                                            BorderRadius.zero,
-                                                      ),
+                                                    borderRadius:
+                                                        BorderRadius.zero,
+                                                  ),
                                                 ),
                                                 onPressed: _togglePlayPause,
                                                 child: Icon(
@@ -809,20 +1128,18 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   children: [
                                     ConstrainedBox(
                                       constraints: const BoxConstraints(
-                                        maxHeight: coverSize,
-                                        maxWidth: coverSize,
+                                        maxHeight: 320.0,
+                                        maxWidth: 320.0,
                                       ),
                                       child: Container(
                                         decoration: const BoxDecoration(
                                           color: Color(0xFF1a1a1a),
                                           borderRadius: BorderRadius.all(
-                                            Radius.circular(8),
-                                          ),
+                                              Radius.circular(8)),
                                         ),
                                         child: ClipRRect(
                                           borderRadius: const BorderRadius.all(
-                                            Radius.circular(8),
-                                          ),
+                                              Radius.circular(8)),
                                           child: _buildCoverWidget(),
                                         ),
                                       ),
@@ -833,9 +1150,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                               Expanded(
                                 child: Padding(
                                   padding: const EdgeInsets.only(
-                                    left: 20,
-                                    right: 20,
-                                  ),
+                                      left: 20, right: 20),
                                   child: Column(
                                     mainAxisAlignment:
                                         MainAxisAlignment.spaceBetween,
@@ -851,17 +1166,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           Text(
                                             statusText,
                                             style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 16,
-                                            ),
+                                                color: Colors.white,
+                                                fontSize: 16),
                                           ),
                                           const SizedBox(height: 15),
                                           Text(
                                             _artist,
                                             style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 18,
-                                            ),
+                                                color: Colors.white,
+                                                fontSize: 18),
                                             textAlign: TextAlign.left,
                                           ),
                                           const SizedBox(height: 12),
@@ -870,33 +1183,35 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.start,
                                             children: [
-                                              Flexible(
-                                                child: Text(
-                                                  mainTitle,
-                                                  style: const TextStyle(
+                                              Text(
+                                                mainTitle,
+                                                style: const TextStyle(
                                                     color: Colors.white,
-                                                    fontSize: 16,
-                                                  ),
-                                                  textAlign: TextAlign.left,
-                                                ),
+                                                    fontSize: 16),
+                                                textAlign: TextAlign.left,
                                               ),
-                                              if (parenthetical != null)
-                                                Text(
-                                                  '($parenthetical)',
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 14,
+                                              if (parenthetical != null &&
+                                                  _settings
+                                                      .showExtendedTrackInfo)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 4.0),
+                                                  child: Text(
+                                                    parenthetical,
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 14),
+                                                    textAlign: TextAlign.left,
                                                   ),
-                                                  textAlign: TextAlign.left,
                                                 ),
                                             ],
                                           ),
                                         ],
                                       ),
                                       Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 30,
-                                        ),
+                                        padding:
+                                            const EdgeInsets.only(bottom: 30),
                                         child: const Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
@@ -904,16 +1219,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                             Text(
                                               'Developed by',
                                               style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 16,
-                                              ),
+                                                  color: Colors.grey,
+                                                  fontSize: 16),
                                             ),
                                             Text(
                                               'Beasty Beats 2025',
                                               style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 16,
-                                              ),
+                                                  color: Colors.grey,
+                                                  fontSize: 16),
                                             ),
                                           ],
                                         ),
@@ -970,17 +1283,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   Text(
                                     statusText,
                                     style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                    ),
+                                        color: Colors.white, fontSize: 16),
                                   ),
                                   const SizedBox(height: 15),
                                   Text(
                                     _artist,
                                     style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                    ),
+                                        color: Colors.white, fontSize: 18),
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 12),
@@ -990,19 +1299,21 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                       Text(
                                         mainTitle,
                                         style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                        ),
+                                            color: Colors.white, fontSize: 16),
                                         textAlign: TextAlign.center,
                                       ),
-                                      if (parenthetical != null)
-                                        Text(
-                                          '($parenthetical)',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 14,
+                                      if (parenthetical != null &&
+                                          _settings.showExtendedTrackInfo)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 4.0),
+                                          child: Text(
+                                            parenthetical,
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14),
+                                            textAlign: TextAlign.center,
                                           ),
-                                          textAlign: TextAlign.center,
                                         ),
                                     ],
                                   ),
@@ -1012,14 +1323,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                     height: 320,
                                     decoration: const BoxDecoration(
                                       color: Color(0xFF1a1a1a),
-                                      borderRadius: BorderRadius.all(
-                                        Radius.circular(8),
-                                      ),
+                                      borderRadius:
+                                          BorderRadius.all(Radius.circular(8)),
                                     ),
                                     child: ClipRRect(
                                       borderRadius: const BorderRadius.all(
-                                        Radius.circular(8),
-                                      ),
+                                          Radius.circular(8)),
                                       child: _buildCoverWidget(),
                                     ),
                                   ),
@@ -1034,14 +1343,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                           height: 52.5,
                                           child: ElevatedButton(
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: const Color(
-                                                0xFF808080,
-                                              ),
+                                              backgroundColor:
+                                                  const Color(0xFF808080),
                                               shape:
                                                   const RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.zero,
-                                                  ),
+                                                borderRadius: BorderRadius.zero,
+                                              ),
                                             ),
                                             onPressed: _togglePlayPause,
                                             child: Icon(
@@ -1060,9 +1367,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                   const Text(
                                     'Developed by Beasty Beats 2025',
                                     style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 16,
-                                    ),
+                                        color: Colors.grey, fontSize: 16),
                                   ),
                                 ],
                               ),
@@ -1083,9 +1388,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       ),
                       if (_isMenuOpen)
                         Positioned(
-                          top: Orientation.landscape == Orientation.landscape
-                              ? 70
-                              : 70,
+                          top: orientation == Orientation.landscape ? 70 : 70,
                           right: 10,
                           child: AnimatedBuilder(
                             animation: _menuController,
@@ -1095,21 +1398,17 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 child: Transform.translate(
                                   offset: _menuOffsetAnimation.value,
                                   child: Container(
-                                    width:
-                                        Orientation.landscape ==
-                                            Orientation.landscape
+                                    width: orientation == Orientation.landscape
                                         ? 180
                                         : 195,
                                     constraints: BoxConstraints(
                                       maxHeight:
                                           MediaQuery.of(context).size.height *
-                                          0.7,
+                                              0.7,
                                     ),
                                     color: const Color(0xFF1a1a1a),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 0,
-                                    ),
+                                        horizontal: 10, vertical: 0),
                                     child: ListView(
                                       shrinkWrap: true,
                                       physics:
@@ -1119,27 +1418,23 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         _buildMenuItem(
                                           0,
                                           () => _launchURL(
-                                            'https://t.me/vtornikshow',
-                                          ),
+                                              'https://t.me/vtornikshow'),
                                           AppLocalizations.of(context).telegram,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           1,
                                           () => _launchURL(
-                                            'https://t.me/beastybeats23',
-                                          ),
+                                              'https://t.me/beastybeats23'),
                                           AppLocalizations.of(context).chat,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
                                           2,
                                           () => _launchURL(
-                                            'https://vtrnk.online/stream.html',
-                                          ),
-                                          AppLocalizations.of(
-                                            context,
-                                          ).videoStream,
+                                              'https://vtrnk.online/stream.html'),
+                                          AppLocalizations.of(context)
+                                              .videoStream,
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
@@ -1151,7 +1446,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                         _buildMenuItem(
                                           4,
                                           () => _showLanguageDialog(),
-                                          '🇬🇧 🇷🇺 🇮🇱',
+                                          '🇬🇧 🇷🇺 🇪🇸 🇫🇷 🇮🇱',
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
@@ -1180,11 +1475,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildMenuItem(
-    int index,
-    VoidCallback callback,
-    String text,
-    Color color,
-  ) {
+      int index, VoidCallback callback, String text, Color color) {
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
@@ -1242,10 +1533,8 @@ class EqualizerPainter extends CustomPainter {
     final Paint paint = Paint()
       ..style = PaintingStyle.fill
       ..color = Colors.white;
-
     double totalWidth = barCount * barWidth + (barCount - 1) * gap;
     double startX = (size.width - totalWidth) / 2;
-
     for (int i = 0; i < barCount; i++) {
       double phase = progress * 2 * pi * randomSpeeds[i] + randomOffsets[i];
       double heightFactor = (sin(phase) + 1) / 2;
@@ -1273,36 +1562,36 @@ class EqualizerPainter extends CustomPainter {
 class AudioPlayerHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   static final _player = AudioPlayer();
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String _artist = "VTRNK";
   String _title = "Stream";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
-  String? _currentStreamTitle;
   int _retryCount = 0;
   static const int maxRetries = 3;
 
   AudioPlayerHandler() {
     try {
-      print('AudioHandler constructor start');
+      debugPrint('AudioHandler constructor start');
       _player.playbackEventStream.map(_transformEvent).listen((event) {
         playbackState.add(event);
       });
       _player.setLoopMode(LoopMode.off);
       _player.processingStateStream.listen((state) {
         if (state == ProcessingState.completed) {
-          print("Stream completed unexpectedly - reconnecting");
+          debugPrint("Stream completed unexpectedly - reconnecting");
           reloadStream();
           _player.play();
         } else if (state == ProcessingState.buffering) {
-          _updateMediaMetadata(title: "Buffering...");
+          updateMediaMetadata(title: "Buffering...");
         }
       });
-      _loadInitialTrack();
       _initWebSocket();
-      print('AudioHandler constructor success');
+      _fetchTrackInfo();
+      _loadInitialTrack();
+      debugPrint('AudioHandler constructor success');
     } catch (e) {
-      print('AudioHandler constructor error: $e');
-      _updateMediaMetadata(title: "Ошибка аудио: $e");
+      debugPrint('AudioHandler constructor error: $e');
+      updateMediaMetadata(title: "Audio error: $e");
     }
   }
 
@@ -1312,65 +1601,98 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> reloadStream() async {
     try {
+      final settings = await AppSettings.loadFromPrefs();
+      int bracketIndex = _title.indexOf('(');
+      int squareBracketIndex = _title.indexOf('[');
+      int firstBracketIndex = -1;
+
+      if (bracketIndex == -1 && squareBracketIndex != -1) {
+        firstBracketIndex = squareBracketIndex;
+      } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+        firstBracketIndex = bracketIndex;
+      } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+        firstBracketIndex = min(bracketIndex, squareBracketIndex);
+      }
+
+      final title = settings.showExtendedTrackInfo
+          ? _title
+          : firstBracketIndex > 0
+              ? _title.substring(0, firstBracketIndex).trim()
+              : _title;
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.parse('https://vtrnk.online/radio_stream'),
           tag: MediaItem(
             id: '1',
             album: 'VTRNK Radio',
-            title: 'VTRNK Radio',
-            artist: 'Stream',
-            artUri: Uri.parse('assets/vt-videoplaceholder.png'),
+            title: title,
+            artist: _artist,
+            artUri: Uri.parse(_coverUrl),
             duration: null,
           ),
         ),
       );
-      print("Stream source reloaded");
+      debugPrint(
+          "Stream source reloaded with title=$title, artist=$_artist, cover=$_coverUrl");
+      _retryCount = 0;
     } catch (e) {
-      print("Ошибка перезагрузки стрима: $e");
-      _updateMediaMetadata(title: "Ошибка подключения");
+      debugPrint("Stream reload error: $e");
+      updateMediaMetadata(title: "Connection error");
+      if (_retryCount < maxRetries) {
+        _retryCount++;
+        await Future.delayed(const Duration(seconds: 5));
+        await reloadStream();
+      } else {
+        debugPrint("Max retries reached for stream reload");
+        updateMediaMetadata(title: "Failed to connect to stream");
+      }
     }
   }
 
   void loadCover() {
-    print('loadCover triggered');
+    debugPrint('loadCover triggered');
     _fetchCoverUrl();
-    _updateMediaMetadata();
+  }
+
+  Future<void> fetchTrackInfo() async {
+    await _fetchTrackInfo();
   }
 
   void _initWebSocket() {
     try {
-      print('WebSocket init start');
-      _socket = IO.io(
+      debugPrint('WebSocket init start');
+      _socket = io.io(
         'https://vtrnk.online',
-        IO.OptionBuilder()
+        io.OptionBuilder()
             .setTransports(['websocket'])
             .enableAutoConnect()
             .build(),
       );
       _socket!.onConnect((_) {
-        print('WebSocket подключён');
+        debugPrint('WebSocket connected');
         _retryCount = 0;
         _fetchTrackInfo();
       });
-      _socket!.on('track_update', (data) {
-        print("Получено track_update: $data");
+      _socket!.on('track_update', (data) async {
+        debugPrint("Received track_update: $data");
         if (data is Map && !isVideoStreamActive(data)) {
           _artist = data['artist']?.toString() ?? _artist;
-          _title = data['title']?.toString() ?? "Stream";
-          _fetchCoverUrl();
+          _title = data['title']?.toString() ?? _title;
+          await _fetchCoverUrl();
+          final settings = await AppSettings.loadFromPrefs();
+          updateMediaMetadata(settings: settings);
         }
       });
       _socket!.onDisconnect((_) {
-        print('WebSocket отключён');
+        debugPrint('WebSocket disconnected');
         if (_retryCount < maxRetries) {
           _retryCount++;
           Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
         }
       });
-      print('WebSocket init success');
+      debugPrint('WebSocket init success');
     } catch (e) {
-      print('WebSocket init error: $e');
+      debugPrint('WebSocket init error: $e');
       if (_retryCount < maxRetries) {
         _retryCount++;
         Future.delayed(const Duration(seconds: 5), () => _initWebSocket());
@@ -1384,24 +1706,26 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchTrackInfo() async {
     try {
-      print('FetchTrack start');
+      debugPrint('FetchTrack start');
       final response = await http
           .get(Uri.parse('https://vtrnk.online/track'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as List<dynamic>;
         final trackData = {for (var item in data) item[0]: item[1]};
-        _artist = trackData['artist']?.toString() ?? "VTRNK";
-        _title = trackData['title']?.toString() ?? "Stream";
+        _artist = trackData['artist']?.toString() ?? _artist;
+        _title = trackData['title']?.toString() ?? _title;
+        debugPrint('Track info updated: title=$_title, artist=$_artist');
         await _fetchCoverUrl();
-        _updateMediaMetadata();
+        final settings = await AppSettings.loadFromPrefs();
+        updateMediaMetadata(settings: settings);
       } else {
-        print("Ошибка получения трека: ${response.statusCode}");
-        _updateMediaMetadata(title: "Ошибка получения трека");
+        debugPrint("Track fetch error: ${response.statusCode}");
+        updateMediaMetadata(title: "Track fetch error");
       }
     } catch (e) {
-      print("Ошибка при запросе данных: $e");
-      _updateMediaMetadata(title: "Ошибка подключения");
+      debugPrint("Error fetching track data: $e");
+      updateMediaMetadata(title: "Connection error");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
@@ -1412,27 +1736,29 @@ class AudioPlayerHandler extends BaseAudioHandler
 
   Future<void> _fetchCoverUrl() async {
     try {
-      print('FetchCover start: requesting https://vtrnk.online/get_cover_path');
+      debugPrint(
+          'FetchCover start: requesting https://vtrnk.online/get_cover_path');
       final coverResponse = await http
           .get(Uri.parse('https://vtrnk.online/get_cover_path'))
           .timeout(const Duration(seconds: 10));
-      print(
-        "FetchCover response: status=${coverResponse.statusCode}, body=${coverResponse.body}",
-      );
+      debugPrint(
+          "FetchCover response: status=${coverResponse.statusCode}, body=${coverResponse.body}");
       if (coverResponse.statusCode == 200) {
         final coverData =
             jsonDecode(coverResponse.body) as Map<String, dynamic>;
-        _coverUrl =
+        final newCoverUrl =
             'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
-        print("Обложка обновлена: $_coverUrl");
-        _updateMediaMetadata();
+        debugPrint("Cover updated: $newCoverUrl");
+        _coverUrl = newCoverUrl;
+        final settings = await AppSettings.loadFromPrefs();
+        updateMediaMetadata(settings: settings);
       } else {
-        print("Ошибка получения обложки: ${coverResponse.statusCode}");
-        _updateMediaMetadata();
+        debugPrint("Cover fetch error: ${coverResponse.statusCode}");
+        updateMediaMetadata(title: "Cover fetch error");
       }
     } catch (e) {
-      print("Ошибка при запросе обложки: $e");
-      _updateMediaMetadata();
+      debugPrint("Error fetching cover: $e");
+      updateMediaMetadata(title: "Error fetching cover");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
@@ -1441,44 +1767,56 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
-  void _updateMediaMetadata({String? title}) {
-    if (title == null && _title == null) {
-      print('UpdateMediaMetadata skipped: no title');
-      return;
+  void updateMediaMetadata({String? title, AppSettings? settings}) {
+    final effectiveTitle = title ?? _title;
+    int bracketIndex = effectiveTitle.indexOf('(');
+    int squareBracketIndex = effectiveTitle.indexOf('[');
+    int firstBracketIndex = -1;
+
+    if (bracketIndex == -1 && squareBracketIndex != -1) {
+      firstBracketIndex = squareBracketIndex;
+    } else if (squareBracketIndex == -1 && bracketIndex != -1) {
+      firstBracketIndex = bracketIndex;
+    } else if (bracketIndex != -1 && squareBracketIndex != -1) {
+      firstBracketIndex = min(bracketIndex, squareBracketIndex);
     }
+
+    final displayTitle = settings != null && settings.showExtendedTrackInfo
+        ? effectiveTitle
+        : firstBracketIndex > 0
+            ? effectiveTitle.substring(0, firstBracketIndex).trim()
+            : effectiveTitle;
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
-      title: title ?? _title,
+      title: displayTitle,
       artist: _artist,
       artUri: Uri.parse(_coverUrl),
       duration: null,
     );
-    print(
-      "Обновление MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}",
-    );
-    updateMediaItem(newItem);
+    debugPrint(
+        "Updating MediaItem: title=${newItem.title}, artist=${newItem.artist}, cover=${newItem.artUri}");
+    mediaItem.add(newItem);
   }
 
-  Future<void> updateMediaItem(MediaItem item) async {
+  // ignore: deprecated_member_use
+  @override
+  Future<void> updateMediaItem(MediaItem mediaItem) async {
     try {
-      print(
-        "Updating MediaItem: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
-      );
-      mediaItem.add(item);
-      await updateQueue([item]);
+      debugPrint(
+          "Updating MediaItem for notifications: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
+      await updateQueue([mediaItem]);
       playbackState.add(
         playbackState.value.copyWith(
           processingState: AudioProcessingState.ready,
           playing: _player.playing,
         ),
       );
-      await AudioService.updateMediaItem(item);
-      print(
-        "Уведомления обновлены: title=${item.title}, artist=${item.artist}, cover=${item.artUri}",
-      );
+      await AudioService.updateMediaItem(mediaItem);
+      debugPrint(
+          "Notifications updated: title=${mediaItem.title}, artist=${mediaItem.artist}, cover=${mediaItem.artUri}");
     } catch (e) {
-      print("Ошибка обновления MediaItem: $e");
+      debugPrint("Error updating MediaItem: $e");
     }
   }
 
@@ -1489,8 +1827,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       ],
       systemActions: {MediaAction.seek},
       androidCompactActionIndices: const [0],
-      processingState:
-          {
+      processingState: {
             ProcessingState.idle: AudioProcessingState.idle,
             ProcessingState.loading: AudioProcessingState.loading,
             ProcessingState.buffering: AudioProcessingState.buffering,
@@ -1514,8 +1851,8 @@ class AudioPlayerHandler extends BaseAudioHandler
       }
       await _player.play();
     } catch (e) {
-      print("Ошибка воспроизведения: $e");
-      _updateMediaMetadata(title: "Ошибка воспроизведения");
+      debugPrint("Playback error: $e");
+      updateMediaMetadata(title: "Playback error");
     }
   }
 
@@ -1524,7 +1861,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     try {
       await _player.pause();
     } catch (e) {
-      print("Ошибка паузы: $e");
+      debugPrint("Pause error: $e");
     }
   }
 
@@ -1534,7 +1871,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       _socket?.disconnect();
       await _player.stop();
     } catch (e) {
-      print("Ошибка остановки: $e");
+      debugPrint("Stop error: $e");
     }
   }
 
@@ -1543,7 +1880,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     try {
       await _player.seek(position);
     } catch (e) {
-      print("Ошибка seek: $e");
+      debugPrint("Seek error: $e");
     }
   }
 
