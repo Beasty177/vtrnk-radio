@@ -27,11 +27,9 @@ Color? extractDominantColor(Uint8List imageBytes) {
       debugPrint('Failed to decode image for color extraction');
       return null;
     }
-
     final pixels = image.getBytes();
     debugPrint(
         'Image decoded: width=${image.width}, height=${image.height}, pixels=${pixels.length}');
-
     // Convert RGB to HSV and track vibrant colors
     Map<int, int> colorCounts = {};
     Map<int, double> saturationMap = {};
@@ -39,7 +37,6 @@ Color? extractDominantColor(Uint8List imageBytes) {
       int r = pixels[i];
       int g = pixels[i + 1];
       int b = pixels[i + 2];
-
       // Convert RGB to HSV
       double rNorm = r / 255.0;
       double gNorm = g / 255.0;
@@ -47,7 +44,6 @@ Color? extractDominantColor(Uint8List imageBytes) {
       double max = [rNorm, gNorm, bNorm].reduce((a, b) => a > b ? a : b);
       double min = [rNorm, gNorm, bNorm].reduce((a, b) => a < b ? a : b);
       double saturation = max == 0 ? 0 : (max - min) / max;
-
       // Only consider colors with sufficient saturation to avoid grey
       if (saturation > 0.3) {
         int color = (r << 16) | (g << 8) | b;
@@ -55,12 +51,10 @@ Color? extractDominantColor(Uint8List imageBytes) {
         saturationMap[color] = saturation;
       }
     }
-
     if (colorCounts.isEmpty) {
       debugPrint('No vibrant pixels found for color extraction');
       return null;
     }
-
     // Find the most frequent vibrant color
     int maxCount = 0;
     int dominantColorInt = 0;
@@ -75,7 +69,6 @@ Color? extractDominantColor(Uint8List imageBytes) {
         maxSaturation = saturation;
       }
     });
-
     final dominantR = (dominantColorInt >> 16) & 0xFF;
     final dominantG = (dominantColorInt >> 8) & 0xFF;
     final dominantB = dominantColorInt & 0xFF;
@@ -230,14 +223,14 @@ class AppSettings {
 
 class MyHomePage extends StatefulWidget {
   final void Function(String) onLocaleChange;
-
   const MyHomePage({super.key, required this.onLocaleChange});
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+class _MyHomePageState extends State<MyHomePage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _isMenuOpen = false;
   late AnimationController _controller;
   late AnimationController _colorController;
@@ -259,6 +252,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   String _artist = "Waiting for artist...";
   String _title = "Waiting for track...";
   String _coverUrl = 'assets/vt-videoplaceholder.png';
+  Uint8List?
+      _coverBytes; // New: Store image bytes for display and color extraction
   String? _previousCoverUrl;
   bool _isAssetCover = true;
   Color _backgroundColor = Colors.black;
@@ -269,6 +264,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // Add lifecycle observer
     _randomOffsets =
         List.generate(barCount, (_) => _random.nextDouble() * pi * 2);
     _randomMultipliers =
@@ -332,6 +328,19 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             ))
         .toList();
     _initAll();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && _audioHandler != null) {
+      // On resume from background, refresh track info and cover
+      _audioHandler!.fetchTrackInfo();
+      if (_settings.enableCoverLoading) {
+        _audioHandler!.loadCover();
+      }
+      debugPrint('App resumed: Refreshing track info and cover');
+    }
   }
 
   Future<void> _showLanguageDialog() async {
@@ -452,7 +461,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                                 ),
                               );
                             } else if (!_isAssetCover) {
-                              _updateBackgroundColor();
+                              _loadCoverBytes(); // Reload bytes and update color
                             }
                           });
                           _settings.saveToPrefs();
@@ -476,11 +485,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                             if (value && _audioHandler != null) {
                               _audioHandler!.loadCover();
                               if (_settings.enableAdaptiveBackground) {
-                                _updateBackgroundColor();
+                                _loadCoverBytes(); // Load bytes and update
                               }
                             } else {
                               _previousCoverUrl = _coverUrl;
                               _coverUrl = 'assets/vt-videoplaceholder.png';
+                              _coverBytes = null;
                               _isAssetCover = true;
                               _backgroundColor = Colors.black;
                               _colorAnimation = ColorTween(
@@ -545,6 +555,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       _isAssetCover = !_settings.enableCoverLoading;
       if (_isAssetCover) {
         _coverUrl = 'assets/vt-videoplaceholder.png';
+        await _loadCoverBytes(); // Load asset bytes initially
       }
       _audioHandler = globalAudioHandler as AudioPlayerHandler?;
       if (_audioHandler == null) {
@@ -581,8 +592,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                     item.artUri?.toString() ?? 'assets/vt-videoplaceholder.png';
               }
             });
-            if (_settings.enableAdaptiveBackground && !_isAssetCover) {
-              _updateBackgroundColor();
+            if (!_isAssetCover) {
+              _loadCoverBytes(); // Load bytes for display and background
             }
           }
         });
@@ -603,9 +614,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                     'assets/vt-videoplaceholder.png';
               }
             });
-            if (_settings.enableAdaptiveBackground && !_isAssetCover) {
-              _updateBackgroundColor();
-            }
+            _loadCoverBytes(); // Initial load
           }
         }
       } catch (e) {
@@ -628,29 +637,61 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _updateBackgroundColor() async {
-    if (!_settings.enableAdaptiveBackground ||
-        _isAssetCover ||
-        _coverUrl.startsWith('assets/') ||
-        _coverUrl.startsWith('file://')) {
-      debugPrint(
-          'UpdateBG skipped: enableAdaptiveBackground=${_settings.enableAdaptiveBackground}, isAssetCover=$_isAssetCover, coverUrl=$_coverUrl');
+  Future<void> _loadCoverBytes() async {
+    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
+      try {
+        final byteData = await rootBundle.load(_coverUrl);
+        final bytes = byteData.buffer.asUint8List();
+        if (mounted) {
+          setState(() {
+            _coverBytes = bytes;
+          });
+        }
+        if (_settings.enableAdaptiveBackground) {
+          _updateBackgroundColor(bytes);
+        }
+      } catch (e) {
+        debugPrint('Asset load error: $e');
+      }
       return;
     }
+
+    if (!_settings.enableAdaptiveBackground && !_settings.enableCoverLoading) {
+      debugPrint('Load bytes skipped: Settings disabled');
+      return;
+    }
+
     try {
-      debugPrint('UpdateBG: Loading palette for $_coverUrl');
+      debugPrint('Loading cover bytes from $_coverUrl');
       final response = await http
           .get(Uri.parse(_coverUrl))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         debugPrint(
-            'Failed to load image: ${response.statusCode}, body=${response.body}');
+            'Failed to load image bytes: ${response.statusCode}, body=${response.body}');
         return;
       }
-      debugPrint(
-          'Image loaded successfully, bytes=${response.bodyBytes.length}');
-      final dominantColor =
-          await compute(extractDominantColor, response.bodyBytes);
+      final bytes = response.bodyBytes;
+      if (mounted) {
+        setState(() {
+          _coverBytes = bytes;
+        });
+      }
+      if (_settings.enableAdaptiveBackground) {
+        _updateBackgroundColor(bytes);
+      }
+    } catch (e) {
+      debugPrint("Error loading cover bytes: $e");
+      await Future.delayed(const Duration(seconds: 5));
+      if (mounted) {
+        _loadCoverBytes(); // Retry
+      }
+    }
+  }
+
+  Future<void> _updateBackgroundColor(Uint8List bytes) async {
+    try {
+      final dominantColor = await compute(extractDominantColor, bytes);
       if (dominantColor == null) {
         debugPrint('Failed to extract dominant color');
         return;
@@ -659,9 +700,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         setState(() {
           final luminance = dominantColor.computeLuminance();
           final targetColor = Color.fromRGBO(
-            (dominantColor.r * 255.0).round() & 0xFF,
-            (dominantColor.g * 255.0).round() & 0xFF,
-            (dominantColor.b * 255.0).round() & 0xFF,
+            (dominantColor.red * 255.0).round() & 0xFF,
+            (dominantColor.green * 255.0).round() & 0xFF,
+            (dominantColor.blue * 255.0).round() & 0xFF,
             luminance > 0.5 ? 0.8 : 1.0,
           );
           debugPrint(
@@ -680,18 +721,25 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         _colorController.forward(from: 0.0);
       }
     } catch (e) {
-      debugPrint("Error extracting color: $e");
-      await Future.delayed(const Duration(seconds: 5));
-      if (mounted) {
-        await _updateBackgroundColor();
-      }
+      debugPrint("Error updating background: $e");
     }
   }
 
   Widget _buildCoverWidget() {
     debugPrint(
-        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover, _previousCoverUrl=$_previousCoverUrl');
-    if (_isAssetCover || _coverUrl.startsWith('assets/')) {
+        'Building cover widget: _coverUrl=$_coverUrl, _isAssetCover=$_isAssetCover, _previousCoverUrl=$_previousCoverUrl, hasBytes=${_coverBytes != null}');
+
+    if (_coverBytes != null) {
+      return Image.memory(
+        _coverBytes!,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('Image.memory error: $error');
+          return Image.asset('assets/vt-videoplaceholder.png',
+              fit: BoxFit.cover);
+        },
+      );
+    } else if (_isAssetCover || _coverUrl.startsWith('assets/')) {
       return Image.asset(
         _coverUrl,
         fit: BoxFit.cover,
@@ -774,6 +822,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); // Remove observer
     _controller.dispose();
     _colorController.dispose();
     _menuController.dispose();
@@ -1357,10 +1406,8 @@ class EqualizerPainter extends CustomPainter {
     final Paint paint = Paint()
       ..style = PaintingStyle.fill
       ..color = Colors.white;
-
     double totalWidth = barCount * barWidth + (barCount - 1) * gap;
     double startX = (size.width - totalWidth) / 2;
-
     for (int i = 0; i < barCount; i++) {
       double phase = progress * 2 * pi * randomSpeeds[i] + randomOffsets[i];
       double heightFactor = (sin(phase) + 1) / 2;
