@@ -177,14 +177,14 @@ class AppSettings {
   final bool enableAdaptiveBackground;
   final bool enableCoverLoading;
   final bool showEqualizer;
-  final bool showExtendedTrackInfo; // New
+  final bool showExtendedTrackInfo;
 
   AppSettings({
     this.enableVibration = true,
     this.enableAdaptiveBackground = true,
     this.enableCoverLoading = true,
     this.showEqualizer = true,
-    this.showExtendedTrackInfo = true, // New
+    this.showExtendedTrackInfo = true,
   });
 
   AppSettings copyWith({
@@ -192,7 +192,7 @@ class AppSettings {
     bool? enableAdaptiveBackground,
     bool? enableCoverLoading,
     bool? showEqualizer,
-    bool? showExtendedTrackInfo, // New
+    bool? showExtendedTrackInfo,
   }) {
     return AppSettings(
       enableVibration: enableVibration ?? this.enableVibration,
@@ -201,7 +201,7 @@ class AppSettings {
       enableCoverLoading: enableCoverLoading ?? this.enableCoverLoading,
       showEqualizer: showEqualizer ?? this.showEqualizer,
       showExtendedTrackInfo:
-          showExtendedTrackInfo ?? this.showExtendedTrackInfo, // New
+          showExtendedTrackInfo ?? this.showExtendedTrackInfo,
     );
   }
 
@@ -211,7 +211,7 @@ class AppSettings {
     await prefs.setBool('enableAdaptiveBackground', enableAdaptiveBackground);
     await prefs.setBool('enableCoverLoading', enableCoverLoading);
     await prefs.setBool('showEqualizer', showEqualizer);
-    await prefs.setBool('showExtendedTrackInfo', showExtendedTrackInfo); // New
+    await prefs.setBool('showExtendedTrackInfo', showExtendedTrackInfo);
   }
 
   static Future<AppSettings> loadFromPrefs() async {
@@ -222,8 +222,7 @@ class AppSettings {
           prefs.getBool('enableAdaptiveBackground') ?? true,
       enableCoverLoading: prefs.getBool('enableCoverLoading') ?? true,
       showEqualizer: prefs.getBool('showEqualizer') ?? true,
-      showExtendedTrackInfo:
-          prefs.getBool('showExtendedTrackInfo') ?? true, // New
+      showExtendedTrackInfo: prefs.getBool('showExtendedTrackInfo') ?? true,
     );
   }
 }
@@ -552,10 +551,13 @@ class _MyHomePageState extends State<MyHomePage>
                               showExtendedTrackInfo: value,
                             );
                           });
-                          setState(() {});
+                          setState(() {
+                            debugPrint(
+                                'Show extended track info setting changed: $value');
+                          });
                           _settings.saveToPrefs();
-                          debugPrint(
-                              'Show extended track info setting changed: $value');
+                          _audioHandler?.updateMediaMetadata(
+                              settings: _settings, title: _title);
                         },
                       ),
                     ],
@@ -940,10 +942,14 @@ class _MyHomePageState extends State<MyHomePage>
     }
     String mainTitle = _title;
     String? parenthetical;
-    final match = RegExp(r'^(.*?)(?:\s*$$ (.*?) $$)?$').firstMatch(_title);
-    if (match != null) {
-      mainTitle = match.group(1)?.trim() ?? _title;
-      parenthetical = match.group(2);
+    if (_settings.showExtendedTrackInfo) {
+      final match = RegExp(r'^(.*?)(?:\s*$$ (.*?) $$)?$').firstMatch(_title);
+      if (match != null) {
+        mainTitle = match.group(1)?.trim() ?? _title;
+        parenthetical = match.group(2);
+      }
+    } else {
+      mainTitle = _title.split(r' $$ ')[0].trim();
     }
     final statusText = _isPlaying
         ? AppLocalizations.of(context).nowPlaying
@@ -1110,24 +1116,27 @@ class _MyHomePageState extends State<MyHomePage>
                                             crossAxisAlignment:
                                                 CrossAxisAlignment.start,
                                             children: [
-                                              Flexible(
-                                                child: Text(
-                                                  mainTitle,
-                                                  style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 16),
-                                                  textAlign: TextAlign.left,
-                                                ),
+                                              Text(
+                                                mainTitle,
+                                                style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16),
+                                                textAlign: TextAlign.left,
                                               ),
                                               if (parenthetical != null &&
                                                   _settings
                                                       .showExtendedTrackInfo)
-                                                Text(
-                                                  '($parenthetical)',
-                                                  style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 14),
-                                                  textAlign: TextAlign.left,
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 4.0),
+                                                  child: Text(
+                                                    '($parenthetical)',
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 14),
+                                                    textAlign: TextAlign.left,
+                                                  ),
                                                 ),
                                             ],
                                           ),
@@ -1228,12 +1237,16 @@ class _MyHomePageState extends State<MyHomePage>
                                       ),
                                       if (parenthetical != null &&
                                           _settings.showExtendedTrackInfo)
-                                        Text(
-                                          '($parenthetical)',
-                                          style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14),
-                                          textAlign: TextAlign.center,
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 4.0),
+                                          child: Text(
+                                            '($parenthetical)',
+                                            style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14),
+                                            textAlign: TextAlign.center,
+                                          ),
                                         ),
                                     ],
                                   ),
@@ -1502,7 +1515,7 @@ class AudioPlayerHandler extends BaseAudioHandler
           reloadStream();
           _player.play();
         } else if (state == ProcessingState.buffering) {
-          _updateMediaMetadata(title: "Buffering...");
+          updateMediaMetadata(title: "Buffering...");
         }
       });
       _initWebSocket();
@@ -1511,7 +1524,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       debugPrint('AudioHandler constructor success');
     } catch (e) {
       debugPrint('AudioHandler constructor error: $e');
-      _updateMediaMetadata(title: "Audio error: $e");
+      updateMediaMetadata(title: "Audio error: $e");
     }
   }
 
@@ -1522,8 +1535,9 @@ class AudioPlayerHandler extends BaseAudioHandler
   Future<void> reloadStream() async {
     try {
       final settings = await AppSettings.loadFromPrefs();
-      final title =
-          settings.showExtendedTrackInfo ? _title : _title.split(r' $$ ')[0];
+      final title = settings.showExtendedTrackInfo
+          ? _title
+          : _title.split(r' $$ ')[0].trim();
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.parse('https://vtrnk.online/radio_stream'),
@@ -1542,14 +1556,14 @@ class AudioPlayerHandler extends BaseAudioHandler
       _retryCount = 0;
     } catch (e) {
       debugPrint("Stream reload error: $e");
-      _updateMediaMetadata(title: "Connection error");
+      updateMediaMetadata(title: "Connection error");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
         await reloadStream();
       } else {
         debugPrint("Max retries reached for stream reload");
-        _updateMediaMetadata(title: "Failed to connect to stream");
+        updateMediaMetadata(title: "Failed to connect to stream");
       }
     }
   }
@@ -1584,7 +1598,8 @@ class AudioPlayerHandler extends BaseAudioHandler
           _artist = data['artist']?.toString() ?? _artist;
           _title = data['title']?.toString() ?? _title;
           await _fetchCoverUrl();
-          _updateMediaMetadata();
+          final settings = await AppSettings.loadFromPrefs();
+          updateMediaMetadata(settings: settings);
         }
       });
       _socket!.onDisconnect((_) {
@@ -1621,14 +1636,15 @@ class AudioPlayerHandler extends BaseAudioHandler
         _title = trackData['title']?.toString() ?? _title;
         debugPrint('Track info updated: title=$_title, artist=$_artist');
         await _fetchCoverUrl();
-        _updateMediaMetadata();
+        final settings = await AppSettings.loadFromPrefs();
+        updateMediaMetadata(settings: settings);
       } else {
         debugPrint("Track fetch error: ${response.statusCode}");
-        _updateMediaMetadata(title: "Track fetch error");
+        updateMediaMetadata(title: "Track fetch error");
       }
     } catch (e) {
       debugPrint("Error fetching track data: $e");
-      _updateMediaMetadata(title: "Connection error");
+      updateMediaMetadata(title: "Connection error");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
@@ -1653,14 +1669,15 @@ class AudioPlayerHandler extends BaseAudioHandler
             'https://vtrnk.online${coverData['cover_path'] ?? '/assets/vt-videoplaceholder.png'}';
         debugPrint("Cover updated: $newCoverUrl");
         _coverUrl = newCoverUrl;
-        _updateMediaMetadata();
+        final settings = await AppSettings.loadFromPrefs();
+        updateMediaMetadata(settings: settings);
       } else {
         debugPrint("Cover fetch error: ${coverResponse.statusCode}");
-        _updateMediaMetadata();
+        updateMediaMetadata(title: "Cover fetch error");
       }
     } catch (e) {
       debugPrint("Error fetching cover: $e");
-      _updateMediaMetadata();
+      updateMediaMetadata(title: "Error fetching cover");
       if (_retryCount < maxRetries) {
         _retryCount++;
         await Future.delayed(const Duration(seconds: 5));
@@ -1669,12 +1686,11 @@ class AudioPlayerHandler extends BaseAudioHandler
     }
   }
 
-  void _updateMediaMetadata({String? title}) async {
-    final settings = await AppSettings.loadFromPrefs();
+  void updateMediaMetadata({String? title, AppSettings? settings}) {
     final effectiveTitle = title ?? _title;
-    final displayTitle = settings.showExtendedTrackInfo
+    final displayTitle = settings != null && settings.showExtendedTrackInfo
         ? effectiveTitle
-        : effectiveTitle.split(r' $$ ')[0];
+        : effectiveTitle.split(r' $$ ')[0].trim();
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
@@ -1688,6 +1704,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     mediaItem.add(newItem);
   }
 
+  // ignore: deprecated_member_use
   @override
   Future<void> updateMediaItem(MediaItem mediaItem) async {
     try {
@@ -1740,7 +1757,7 @@ class AudioPlayerHandler extends BaseAudioHandler
       await _player.play();
     } catch (e) {
       debugPrint("Playback error: $e");
-      _updateMediaMetadata(title: "Playback error");
+      updateMediaMetadata(title: "Playback error");
     }
   }
 
