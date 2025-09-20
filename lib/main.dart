@@ -943,13 +943,14 @@ class _MyHomePageState extends State<MyHomePage>
     String mainTitle = _title;
     String? parenthetical;
     if (_settings.showExtendedTrackInfo) {
-      final match = RegExp(r'^(.*?)(?:\s*$$ (.*?) $$)?$').firstMatch(_title);
+      final match = RegExp(r'^(.*?)\s*\((.*?)\)$')
+          .firstMatch(_title); // New RegExp for parentheses
       if (match != null) {
         mainTitle = match.group(1)?.trim() ?? _title;
         parenthetical = match.group(2);
       }
     } else {
-      mainTitle = _title.split(r' $$ ')[0].trim();
+      mainTitle = _title.replaceAll(RegExp(r'\s*\((.*?)\)$'), '').trim();
     }
     final statusText = _isPlaying
         ? AppLocalizations.of(context).nowPlaying
@@ -1537,7 +1538,9 @@ class AudioPlayerHandler extends BaseAudioHandler
       final settings = await AppSettings.loadFromPrefs();
       final title = settings.showExtendedTrackInfo
           ? _title
-          : _title.split(r' $$ ')[0].trim();
+          : _title
+              .replaceAll(RegExp(r'\s*\((.*?)\)$'), '')
+              .trim(); // New for parentheses
       await _player.setAudioSource(
         AudioSource.uri(
           Uri.parse('https://vtrnk.online/radio_stream'),
@@ -1690,7 +1693,9 @@ class AudioPlayerHandler extends BaseAudioHandler
     final effectiveTitle = title ?? _title;
     final displayTitle = settings != null && settings.showExtendedTrackInfo
         ? effectiveTitle
-        : effectiveTitle.split(r' $$ ')[0].trim();
+        : effectiveTitle
+            .replaceAll(RegExp(r'\s*\((.*?)\)$'), '')
+            .trim(); // New for parentheses
     final newItem = MediaItem(
       id: '1',
       album: 'VTRNK Radio',
