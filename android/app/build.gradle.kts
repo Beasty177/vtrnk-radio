@@ -31,7 +31,7 @@ android {
     defaultConfig {
         applicationId = "com.vtrnk.radio"
         minSdk = flutter.minSdkVersion
-        targetSdk = 34
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
