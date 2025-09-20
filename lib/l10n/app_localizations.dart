@@ -31,6 +31,7 @@ class AppLocalizations {
       'videoStream': 'Video Stream',
       'nowPlaying': 'Now Playing',
       'buffering': 'Buffering...',
+      'privacyPolicy': 'Privacy Policy',
     },
     'ru': {
       'languageDialogTitle': 'Выберите язык',
@@ -43,9 +44,10 @@ class AppLocalizations {
       'close': 'Закрыть',
       'telegram': 'Телеграм',
       'chat': 'Чат',
-      'videoStream': 'Видеопоток',
+      'videoStream': 'Видео стрим',
       'nowPlaying': 'Сейчас играет',
       'buffering': 'Буферизация...',
+      'privacyPolicy': 'Политика конфиденциальности',
     },
     'he': {
       'languageDialogTitle': 'בחר שפה',
@@ -61,6 +63,7 @@ class AppLocalizations {
       'videoStream': 'זרם וידאו',
       'nowPlaying': 'מנגן כעת',
       'buffering': 'ממתין...',
+      'privacyPolicy': 'מדיניות פרטיות',
     },
     'fr': {
       'languageDialogTitle': 'Sélectionner la langue',
@@ -76,6 +79,7 @@ class AppLocalizations {
       'videoStream': 'Flux vidéo',
       'nowPlaying': 'En cours de lecture',
       'buffering': 'Mise en mémoire tampon...',
+      'privacyPolicy': 'Politique de confidentialité',
     },
     'es': {
       'languageDialogTitle': 'Seleccionar idioma',
@@ -91,6 +95,7 @@ class AppLocalizations {
       'videoStream': 'Transmisión de video',
       'nowPlaying': 'Ahora suena',
       'buffering': 'Buffering...',
+      'privacyPolicy': 'Política de privacidad',
     },
   };
 
@@ -114,6 +119,8 @@ class AppLocalizations {
   String get nowPlaying =>
       _localizedValues[locale.languageCode]!['nowPlaying']!;
   String get buffering => _localizedValues[locale.languageCode]!['buffering']!;
+  String get privacyPolicy =>
+      _localizedValues[locale.languageCode]!['privacyPolicy']!;
 }
 
 class _AppLocalizationsDelegate
