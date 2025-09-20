@@ -9,7 +9,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:image/image.dart' as img;
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/foundation.dart';
@@ -700,9 +700,9 @@ class _MyHomePageState extends State<MyHomePage>
         setState(() {
           final luminance = dominantColor.computeLuminance();
           final targetColor = Color.fromRGBO(
-            (dominantColor.red * 255.0).round() & 0xFF,
-            (dominantColor.green * 255.0).round() & 0xFF,
-            (dominantColor.blue * 255.0).round() & 0xFF,
+            (dominantColor.r * 255.0).round() & 0xFF,
+            (dominantColor.g * 255.0).round() & 0xFF,
+            (dominantColor.b * 255.0).round() & 0xFF,
             luminance > 0.5 ? 0.8 : 1.0,
           );
           debugPrint(
