@@ -334,7 +334,7 @@ class _MyHomePageState extends State<MyHomePage>
       CurvedAnimation(parent: _buttonController, curve: Curves.easeInOut),
     );
     _menuItemControllers = List.generate(
-      6,
+      7, // Обновлено с 6 на 7 для Privacy Policy
       (_) => AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 100),
@@ -939,13 +939,17 @@ class _MyHomePageState extends State<MyHomePage>
   Future<void> _launchURL(String url) async {
     final uri = Uri.parse(url);
     try {
-      if (await canLaunchUrl(uri)) {
+      debugPrint('Attempting to launch URL: $url');
+      final canLaunch = await canLaunchUrl(uri);
+      debugPrint('Can launch URL: $canLaunch');
+      if (canLaunch) {
         await launchUrl(
           uri,
           mode: url.startsWith('https://t.me')
               ? LaunchMode.externalApplication
               : LaunchMode.platformDefault,
         );
+        debugPrint('URL launched successfully: $url');
       } else {
         debugPrint("Could not launch URL: $url - app not found");
       }
@@ -988,7 +992,6 @@ class _MyHomePageState extends State<MyHomePage>
       int bracketIndex = _title.indexOf('(');
       int squareBracketIndex = _title.indexOf('[');
       int firstBracketIndex = -1;
-
       if (bracketIndex == -1 && squareBracketIndex != -1) {
         firstBracketIndex = squareBracketIndex;
       } else if (squareBracketIndex == -1 && bracketIndex != -1) {
@@ -996,7 +999,6 @@ class _MyHomePageState extends State<MyHomePage>
       } else if (bracketIndex != -1 && squareBracketIndex != -1) {
         firstBracketIndex = min(bracketIndex, squareBracketIndex);
       }
-
       if (firstBracketIndex > 0) {
         mainTitle = _title.substring(0, firstBracketIndex).trim();
         parenthetical = _title.substring(firstBracketIndex);
@@ -1005,7 +1007,6 @@ class _MyHomePageState extends State<MyHomePage>
       int bracketIndex = _title.indexOf('(');
       int squareBracketIndex = _title.indexOf('[');
       int firstBracketIndex = -1;
-
       if (bracketIndex == -1 && squareBracketIndex != -1) {
         firstBracketIndex = squareBracketIndex;
       } else if (squareBracketIndex == -1 && bracketIndex != -1) {
@@ -1013,7 +1014,6 @@ class _MyHomePageState extends State<MyHomePage>
       } else if (bracketIndex != -1 && squareBracketIndex != -1) {
         firstBracketIndex = min(bracketIndex, squareBracketIndex);
       }
-
       if (firstBracketIndex > 0) {
         mainTitle = _title.substring(0, firstBracketIndex).trim();
       }
@@ -1445,12 +1445,20 @@ class _MyHomePageState extends State<MyHomePage>
                                         ),
                                         _buildMenuItem(
                                           4,
+                                          () => _launchURL(
+                                              'https://beasty177.github.io/vtrnk-radio/privacy_policy.html'),
+                                          AppLocalizations.of(context)
+                                              .privacyPolicy,
+                                          const Color(0xFF00aced),
+                                        ),
+                                        _buildMenuItem(
+                                          5,
                                           () => _showLanguageDialog(),
                                           '🇬🇧 🇷🇺 🇪🇸 🇫🇷 🇮🇱',
                                           const Color(0xFF00aced),
                                         ),
                                         _buildMenuItem(
-                                          5,
+                                          6,
                                           _toggleMenu,
                                           AppLocalizations.of(context).close,
                                           Colors.grey,
