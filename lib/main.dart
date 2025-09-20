@@ -687,7 +687,7 @@ class _MyHomePageState extends State<MyHomePage>
                 'Initial MediaItem set: title=${initialItem.title}, artist=${initialItem.artist}, cover=${initialItem.artUri}');
             setState(() {
               _artist = initialItem.artist ?? "VTRNK";
-              _title = item.title;
+              _title = initialItem.title;
               if (_settings.enableCoverLoading && !_isAssetCover) {
                 _previousCoverUrl = _coverUrl;
                 final newCoverUrl = initialItem.artUri?.toString() ??
