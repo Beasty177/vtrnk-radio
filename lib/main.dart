@@ -1878,6 +1878,7 @@ class AudioPlayerHandler extends BaseAudioHandler
     try {
       _socket?.disconnect();
       await _player.stop();
+      await super.stop(); // Завершаем AudioService
     } catch (e) {
       debugPrint("Stop error: $e");
     }
@@ -1889,6 +1890,18 @@ class AudioPlayerHandler extends BaseAudioHandler
       await _player.seek(position);
     } catch (e) {
       debugPrint("Seek error: $e");
+    }
+  }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    try {
+      debugPrint('App removed from recent tasks, stopping audio and service');
+      await _player.stop(); // Останавливаем плеер
+      _socket?.disconnect(); // Отключаем WebSocket
+      await super.stop(); // Завершаем AudioService и убираем уведомление
+    } catch (e) {
+      debugPrint('Error in onTaskRemoved: $e');
     }
   }
 
