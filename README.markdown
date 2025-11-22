@@ -1,5 +1,7 @@
 # VTRNK Radio
 
+[![Download on Google Play](https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png)](https://play.google.com/store/apps/details?id=com.vtrnk.radio)
+
 VTRNK Radio is a Flutter-based mobile application for streaming internet radio from https://vtrnk.online/radio_stream. It features a dynamic equalizer, real-time track metadata updates via WebSocket, background playback, and a responsive UI for both portrait and landscape modes. The app integrates with Liquidsoap and Icecast for seamless audio streaming.
 
 This is my personal project, driven by a passion for programming and music. As an enthusiast in both fields, I developed VTRNK Radio from scratch to showcase full-cycle app development, from initial concept to release. It serves as my portfolio, demonstrating skills in Flutter, Dart, audio streaming with just_audio and audio_service, real-time updates via socket_io_client, and multilingual support using flutter_localizations. The app operates independently from the radio website, relying only on public information like the audio stream URL. With minimal modifications (e.g., updating the stream endpoint in main.dart), it can be adapted or duplicated for any other online radio station using a similar audio stream setup.
